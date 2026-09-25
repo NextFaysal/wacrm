@@ -192,6 +192,11 @@ export interface Conversation {
   ai_autoreply_disabled?: boolean;
   ai_reply_count?: number;
   ai_handoff_summary?: string | null;
+  is_ad_referral?: boolean;
+  free_window_expires_at?: string;
+  ai_followup_count?: number;
+  referral_headline?: string | null;
+  referral_source_url?: string | null;
 }
 
 // ============================================================
@@ -691,6 +696,8 @@ export interface QuickReply {
   /** Author / audit only. */
   user_id: string;
   title: string;
+  /** Optional shortcut (e.g. 'price', 'faq') for `/shortcut` in composer. */
+  shortcut?: string | null;
   kind: QuickReplyKind;
   /** Set when `kind === 'text'`. */
   content_text?: string | null;

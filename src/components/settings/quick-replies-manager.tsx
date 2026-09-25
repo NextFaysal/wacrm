@@ -28,6 +28,7 @@ import type { QuickReply, QuickReplyKind } from "@/types";
 interface DraftState {
   id?: string;
   title: string;
+  shortcut: string;
   kind: QuickReplyKind;
   content_text: string;
   interactive_payload: InteractiveMessagePayload;
@@ -36,6 +37,7 @@ interface DraftState {
 function emptyDraft(): DraftState {
   return {
     title: "",
+    shortcut: "",
     kind: "text",
     content_text: "",
     interactive_payload: blankButtonsPayload(),
@@ -68,6 +70,7 @@ export function QuickRepliesManager() {
     setDraft({
       id: qr.id,
       title: qr.title,
+      shortcut: qr.shortcut ?? "",
       kind: qr.kind,
       content_text: qr.content_text ?? "",
       interactive_payload:
@@ -80,10 +83,21 @@ export function QuickRepliesManager() {
       toast.error("Give the quick reply a name.");
       return;
     }
+    const cleanShortcut = draft.shortcut.trim().toLowerCase().replace(/^\//, "");
     const payload =
       draft.kind === "interactive"
-        ? { title: draft.title, kind: "interactive", interactive_payload: draft.interactive_payload }
-        : { title: draft.title, kind: "text", content_text: draft.content_text };
+        ? {
+            title: draft.title,
+            shortcut: cleanShortcut || null,
+            kind: "interactive",
+            interactive_payload: draft.interactive_payload,
+          }
+        : {
+            title: draft.title,
+            shortcut: cleanShortcut || null,
+            kind: "text",
+            content_text: draft.content_text,
+          };
 
     setSaving(true);
     try {
@@ -157,7 +171,14 @@ export function QuickRepliesManager() {
                 <MessageSquare className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
               )}
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium text-foreground">{qr.title}</p>
+                <div className="flex items-center gap-2">
+                  <p className="truncate text-sm font-medium text-foreground">{qr.title}</p>
+                  {qr.shortcut && (
+                    <span className="rounded bg-primary/10 px-1.5 py-0.5 font-mono text-[11px] font-medium text-primary">
+                      /{qr.shortcut}
+                    </span>
+                  )}
+                </div>
                 <p className="truncate text-xs text-muted-foreground">
                   {qr.kind === "interactive" && qr.interactive_payload
                     ? interactivePayloadPreviewText(qr.interactive_payload)
@@ -189,14 +210,37 @@ export function QuickRepliesManager() {
           </DialogHeader>
           {draft && (
             <div className="max-h-[70vh] space-y-3 overflow-y-auto">
-              <div>
-                <label className="mb-1 block text-xs text-muted-foreground">Name</label>
-                <Input
-                  value={draft.title}
-                  onChange={(e) => setDraft({ ...draft, title: e.target.value })}
-                  placeholder="e.g. Business hours"
-                  className="bg-muted text-foreground"
-                />
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-xs text-muted-foreground">Name</label>
+                  <Input
+                    value={draft.title}
+                    onChange={(e) => setDraft({ ...draft, title: e.target.value })}
+                    placeholder="e.g. Business hours"
+                    className="bg-muted text-foreground"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs text-muted-foreground">
+                    Shortcut (optional)
+                  </label>
+                  <div className="relative">
+                    <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
+                      /
+                    </span>
+                    <Input
+                      value={draft.shortcut}
+                      onChange={(e) =>
+                        setDraft({
+                          ...draft,
+                          shortcut: e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, ""),
+                        })
+                      }
+                      placeholder="hours"
+                      className="bg-muted pl-6 text-foreground font-mono text-xs"
+                    />
+                  </div>
+                </div>
               </div>
               <div className="flex gap-2">
                 <KindTab

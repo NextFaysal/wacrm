@@ -232,32 +232,41 @@ export function MessageThread({
     };
   }, []);
 
-  // 24-hour session timer
+  // Meta Session Timer: 72 hours for Meta Ad referrals (free entry point), 24 hours for organic
   const sessionInfo = useMemo(() => {
-    if (!messages.length) return { expired: false, remaining: "" };
+    if (!messages.length) return { expired: false, remaining: "", isAd: false };
 
     // Find last customer message
     const lastCustomerMsg = [...messages]
       .reverse()
       .find((m) => m.sender_type === "customer");
 
-    if (!lastCustomerMsg) return { expired: true, remaining: tTimer("noCustomerMessages") };
+    if (!lastCustomerMsg) return { expired: true, remaining: tTimer("noCustomerMessages"), isAd: false };
 
+    // Detect if this conversation came from a Meta Ad (72h free window)
+    const isAd = Boolean(
+      conversation?.is_ad_referral ||
+      conversation?.referral_headline ||
+      (conversation as any)?.referral_data
+    );
+
+    const windowHours = isAd ? 72 : 24;
     const hoursSince = differenceInHours(new Date(), new Date(lastCustomerMsg.created_at));
-    const expired = hoursSince >= 24;
+    const expired = hoursSince >= windowHours;
 
     if (expired) {
-      return { expired: true, remaining: tTimer("expired") };
+      return { expired: true, remaining: tTimer("expired"), isAd };
     }
 
-    const hoursLeft = 24 - hoursSince;
+    const hoursLeft = windowHours - hoursSince;
+    const labelPrefix = isAd ? "Ads: " : "";
     const remaining =
       hoursLeft >= 1
-        ? tTimer("xhRemaining", { hours: Math.floor(hoursLeft) })
+        ? `${labelPrefix}${Math.floor(hoursLeft)}h remaining`
         : tTimer("xmRemaining", { minutes: Math.floor(hoursLeft * 60) });
 
-    return { expired, remaining };
-  }, [messages, tTimer]);
+    return { expired, remaining, isAd };
+  }, [messages, conversation, tTimer]);
 
   // Store latest callback in a ref so fetchMessages doesn't need to
   // depend on `onMessagesLoaded` — otherwise parent re-renders cause
@@ -927,13 +936,16 @@ export function MessageThread({
               {contactHandle(contact)}
             </p>
           </div>
-          {/* Session timer badge — hidden on the narrowest phones so
-              the name + back arrow keep their room. */}
+          {/* Session timer badge — 72h Meta Ads Free Window vs 24h organic window */}
           <Badge
             variant="outline"
             className={cn(
               "ml-1 hidden gap-1 border-border text-[10px] sm:inline-flex sm:ml-2",
-              sessionInfo.expired ? "text-red-400" : "text-primary"
+              sessionInfo.expired
+                ? "border-red-500/30 text-red-500"
+                : sessionInfo.isAd
+                  ? "border-emerald-500/40 text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 font-medium"
+                  : "text-primary"
             )}
           >
             <Clock className="h-3 w-3" />

@@ -1,0 +1,22 @@
+# ============================================================
+# Nixpacks configuration for Dokpoly / Next.js
+# ============================================================
+
+[phases.setup]
+nixPkgs = ["nodejs_20"]
+
+[phases.install]
+cmds = ["npm install"]
+
+[phases.build]
+cmds = ["npm run build"]
+
+[start]
+cmd = "npm run start"
+
+[variables]
+NODE_ENV = "production"
+PORT = "3000"
+HOSTNAME = "0.0.0.0"
+NODE_TLS_REJECT_UNAUTHORIZED = "0"
+NEXT_TELEMETRY_DISABLED = "1"

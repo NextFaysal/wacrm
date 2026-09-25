@@ -30,6 +30,11 @@ export async function PATCH(
     update.title = title
   }
 
+  if ('shortcut' in body) {
+    const shortcut = typeof body.shortcut === 'string' ? body.shortcut.trim().toLowerCase().replace(/^\//, '') : null
+    update.shortcut = shortcut || null
+  }
+
   // When `kind` is supplied (e.g. the editor flips Text ↔ Interactive), it
   // drives which content column is authoritative and the other is cleared —
   // otherwise a switched row keeps a stale payload the picker mis-routes on.

@@ -6,6 +6,7 @@ import Script from "next/script";
 import "./globals.css";
 import { ThemeProvider } from "@/hooks/use-theme";
 import { ThemedToaster } from "@/components/themed-toaster";
+import { PwaRegister } from "@/components/pwa-register";
 import {
   DEFAULT_MODE,
   DEFAULT_THEME,
@@ -21,6 +22,7 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
+  applicationName: "wacrm",
   title: {
     default: "wacrm",
     template: "%s — wacrm",
@@ -32,6 +34,12 @@ export const metadata: Metadata = {
   },
   icons: {
     icon: [{ url: "/icon" }],
+    apple: [{ url: "/icon-192.png" }],
+  },
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "wacrm",
   },
   formatDetection: {
     email: false,
@@ -112,6 +120,7 @@ export default async function RootLayout({
           <ThemeProvider>
             {children}
             <ThemedToaster />
+            <PwaRegister />
           </ThemeProvider>
         </NextIntlClientProvider>
       </body>

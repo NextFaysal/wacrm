@@ -19,6 +19,9 @@
     "primaryNav": "Primary",
     "dashboard": "Dashboard",
     "inbox": "Inbox",
+    "products": "Products & Watches",
+    "orders": "Orders & Sales",
+    "analytics": "Sales & Profit",
     "notifications": "Notifications",
     "contacts": "Contacts",
     "pipelines": "Pipelines",
@@ -244,7 +247,12 @@
       "downloadFailed": "Couldn't download the attachment",
       "viewImage": "View image",
       "expandVideo": "Expand video",
-      "imageAlt": "Shared image"
+      "imageAlt": "Shared image",
+      "transcribe": "Transcribe voice note",
+      "transcribeAgain": "Transcribe again",
+      "transcribeFailed": "Couldn't transcribe this audio",
+      "transcriptLabel": "Transcript",
+      "transcriptEmpty": "No speech detected"
     },
     "mediaViewer": {
       "counter": "{index} of {total}",

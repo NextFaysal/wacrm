@@ -19,6 +19,9 @@
     "primaryNav": "Principal",
     "dashboard": "Painel",
     "inbox": "Caixa de entrada",
+    "products": "Produtos e Relógios",
+    "orders": "Pedidos e Vendas",
+    "analytics": "Vendas e Lucro",
     "notifications": "Notificações",
     "contacts": "Contatos",
     "pipelines": "Pipelines",
@@ -244,7 +247,12 @@
       "downloadFailed": "Não foi possível baixar o anexo",
       "viewImage": "Ver imagem",
       "expandVideo": "Expandir vídeo",
-      "imageAlt": "Imagem compartilhada"
+      "imageAlt": "Imagem compartilhada",
+      "transcribe": "Transcrever nota de voz",
+      "transcribeAgain": "Transcrever novamente",
+      "transcribeFailed": "Não foi possível transcrever este áudio",
+      "transcriptLabel": "Transcrição",
+      "transcriptEmpty": "Nenhuma fala detectada"
     },
     "mediaViewer": {
       "counter": "{index} de {total}",

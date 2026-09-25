@@ -7,6 +7,7 @@ import {
   ImageOff,
   Loader2,
   Maximize2,
+  Sparkles,
   type LucideIcon,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -231,16 +232,63 @@ export function MediaAudioBubble({
   t: Translator;
 }) {
   const { downloading, download } = useMediaDownload(message, t);
+  const [transcribing, setTranscribing] = useState(false);
+  const [transcript, setTranscript] = useState<string | null>(null);
+  const [transcriptError, setTranscriptError] = useState<string | null>(null);
+
+  const handleTranscribe = useCallback(async () => {
+    if (transcribing) return;
+    setTranscribing(true);
+    setTranscriptError(null);
+    try {
+      const res = await fetch("/api/ai/transcribe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message_id: message.id }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setTranscriptError(data.error || t("transcribeFailed"));
+        return;
+      }
+      setTranscript(data.text || "");
+    } catch {
+      setTranscriptError(t("transcribeFailed"));
+    } finally {
+      setTranscribing(false);
+    }
+  }, [transcribing, message.id, t]);
 
   return (
-    <div className="flex items-center gap-2">
-      <audio src={message.media_url} controls className="max-w-60" />
-      <MediaActionButton
-        icon={Download}
-        label={t("download")}
-        onClick={download}
-        busy={downloading}
-      />
+    <div className="flex flex-col gap-1.5">
+      <div className="flex items-center gap-2">
+        <audio src={message.media_url} controls className="max-w-60" />
+        <MediaActionButton
+          icon={Download}
+          label={t("download")}
+          onClick={download}
+          busy={downloading}
+        />
+        <MediaActionButton
+          icon={Sparkles}
+          label={transcript !== null ? t("transcribeAgain") : t("transcribe")}
+          onClick={handleTranscribe}
+          busy={transcribing}
+        />
+      </div>
+      {transcript !== null && (
+        <div className="max-w-72 rounded-md bg-muted/50 px-3 py-2 text-xs leading-relaxed text-foreground">
+          <span className="mb-0.5 block text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+            {t("transcriptLabel")}
+          </span>
+          {transcript || (
+            <span className="italic text-muted-foreground">{t("transcriptEmpty")}</span>
+          )}
+        </div>
+      )}
+      {transcriptError && (
+        <p className="max-w-72 text-xs text-destructive">{transcriptError}</p>
+      )}
     </div>
   );
 }

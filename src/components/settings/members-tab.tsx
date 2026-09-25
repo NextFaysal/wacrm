@@ -63,6 +63,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useTranslations } from 'next-intl';
+import { AutoAssignCard } from './auto-assign-card';
 import { RequireRole } from '@/components/auth/require-role';
 import { useAuth } from '@/hooks/use-auth';
 import { usePresence } from '@/hooks/use-presence';
@@ -472,6 +473,8 @@ export function MembersTab() {
           </ul>
         </CardContent>
       </Card>
+
+      <AutoAssignCard />
 
       {/* Pending invitations — admin+ only */}
       <RequireRole min="admin">

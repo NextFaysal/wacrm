@@ -21,6 +21,7 @@ import {
   writeBrowserNotifyPref,
   type BrowserNotifyPermission,
 } from '@/lib/notifications/browser-notify';
+import { subscribeToPush, unsubscribeFromPush } from '@/lib/notifications/push-client';
 
 // `Notification.permission` has no change event of its own. Re-read it
 // whenever the tab regains focus (the user may have flipped the site
@@ -61,10 +62,12 @@ export function BrowserNotificationsCard({ className }: { className?: string }) 
   const onToggle = async (next: boolean) => {
     if (!next) {
       writeBrowserNotifyPref(false);
+      void unsubscribeFromPush();
       return;
     }
     if (permission === 'granted') {
       writeBrowserNotifyPref(true);
+      void subscribeToPush();
       return;
     }
     if (permission === 'denied') {
@@ -75,8 +78,11 @@ export function BrowserNotificationsCard({ className }: { className?: string }) 
     try {
       const result = await Notification.requestPermission();
       // Also dispatches the change event, which refreshes `permission`.
-      writeBrowserNotifyPref(result === 'granted');
-      if (result === 'denied') {
+      const isGranted = result === 'granted';
+      writeBrowserNotifyPref(isGranted);
+      if (isGranted) {
+        void subscribeToPush();
+      } else if (result === 'denied') {
         toast.error(t('permissionDeniedToast'), { description: t('deniedHint') });
       }
     } finally {

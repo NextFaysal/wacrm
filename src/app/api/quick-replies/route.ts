@@ -35,6 +35,7 @@ export async function POST(request: Request) {
   if (!body) return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
 
   const title = typeof body.title === 'string' ? body.title.trim() : ''
+  const shortcut = typeof body.shortcut === 'string' ? body.shortcut.trim().toLowerCase().replace(/^\//, '') : null
   const kind = body.kind === 'interactive' ? 'interactive' : 'text'
   if (!title) {
     return NextResponse.json({ error: 'title is required' }, { status: 400 })
@@ -66,6 +67,7 @@ export async function POST(request: Request) {
       account_id: ctx.accountId,
       user_id: ctx.userId,
       title,
+      shortcut: shortcut || null,
       kind,
       content_text,
       interactive_payload,

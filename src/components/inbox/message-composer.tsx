@@ -5,6 +5,7 @@ import {
   useRef,
   useCallback,
   useEffect,
+  useMemo,
   KeyboardEvent,
 } from "react";
 import {
@@ -20,8 +21,15 @@ import {
   Loader2,
   Sparkles,
   Plus,
+  MessageSquare,
   MessageSquareDashed,
   Zap,
+  CreditCard,
+  Truck,
+  Watch,
+  Award,
+  ShieldCheck,
+  Gift,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { GatedButton } from "@/components/ui/gated-button";
@@ -55,6 +63,12 @@ import {
 import { validateInteractivePayload } from "@/lib/whatsapp/interactive";
 import type { InteractiveMessagePayload, QuickReply } from "@/types";
 import { QuickReplyPicker } from "./quick-reply-picker";
+import { PaymentRequestDialog } from "./payment-request-dialog";
+import { CourierOrderDialog } from "./courier-order-dialog";
+import { WatchShowcaseDialog } from "./watch-showcase-dialog";
+import { WarrantyDialog } from "./warranty-dialog";
+import { AdvanceChargeDialog } from "./advance-charge-dialog";
+import { ReviewRequestDialog } from "./review-request-dialog";
 
 /** Media content types an agent can send from the composer. */
 export type ComposerMediaKind = "image" | "video" | "document" | "audio";
@@ -154,6 +168,31 @@ export function MessageComposer({
     useState<InteractiveMessagePayload>(blankButtonsPayload);
   const [savingQuickReply, setSavingQuickReply] = useState(false);
   const [quickReplyOpen, setQuickReplyOpen] = useState(false);
+  const [paymentRequestOpen, setPaymentRequestOpen] = useState(false);
+  const [courierDialogOpen, setCourierDialogOpen] = useState(false);
+  const [watchShowcaseOpen, setWatchShowcaseOpen] = useState(false);
+  const [warrantyOpen, setWarrantyOpen] = useState(false);
+  const [advanceChargeOpen, setAdvanceChargeOpen] = useState(false);
+  const [reviewRequestOpen, setReviewRequestOpen] = useState(false);
+  const [quickRepliesList, setQuickRepliesList] = useState<QuickReply[]>([]);
+  const [slashQuery, setSlashQuery] = useState<string | null>(null);
+  const [slashSelectedIndex, setSlashSelectedIndex] = useState(0);
+
+  const loadQuickReplies = useCallback(async () => {
+    try {
+      const res = await fetch("/api/quick-replies", { cache: "no-store" });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && Array.isArray(data.quick_replies)) {
+        setQuickRepliesList(data.quick_replies);
+      }
+    } catch {
+      // Ignore background fetch error
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadQuickReplies();
+  }, [loadQuickReplies, quickReplyOpen]);
 
   // Media attachment state. `draft` holds an uploaded-but-not-yet-sent
   // attachment; `busy` covers the upload/transcode window.
@@ -236,20 +275,104 @@ export function MessageComposer({
     }
   }, [text, sending, sessionExpired, onSend, replyTo?.id]);
 
+  const openInteractiveBuilder = useCallback(
+    (seed?: InteractiveMessagePayload) => {
+      setInteractivePayload(seed ?? blankButtonsPayload());
+      setInteractiveOpen(true);
+    },
+    [],
+  );
+
+  const matchingQuickReplies = useMemo(() => {
+    if (slashQuery === null) return [];
+    const q = slashQuery.trim().toLowerCase();
+    return quickRepliesList.filter((qr) => {
+      if (!q) return true;
+      const sMatch = qr.shortcut && qr.shortcut.toLowerCase().includes(q);
+      const tMatch = qr.title.toLowerCase().includes(q);
+      const cMatch = qr.content_text && qr.content_text.toLowerCase().includes(q);
+      return Boolean(sMatch || tMatch || cMatch);
+    });
+  }, [slashQuery, quickRepliesList]);
+
+  const applyQuickReply = useCallback(
+    (qr: QuickReply) => {
+      setSlashQuery(null);
+      if (qr.kind === "interactive" && qr.interactive_payload) {
+        setText((prev) => prev.replace(/(?:^|\s)\/[a-zA-Z0-9_-]*$/, ""));
+        openInteractiveBuilder(qr.interactive_payload);
+        return;
+      }
+      const body = qr.content_text ?? "";
+      setText((prev) => {
+        return prev.replace(/(?:^|\s)\/[a-zA-Z0-9_-]*$/, (prefix) => {
+          const leadingSpace = prefix.startsWith(" ") ? " " : "";
+          return leadingSpace + body;
+        });
+      });
+      requestAnimationFrame(() => {
+        adjustHeight();
+        const el = textareaRef.current;
+        if (el) {
+          el.focus();
+          el.setSelectionRange(el.value.length, el.value.length);
+        }
+      });
+    },
+    [openInteractiveBuilder, adjustHeight]
+  );
+
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
+      if (slashQuery !== null && matchingQuickReplies.length > 0) {
+        if (e.key === "ArrowDown") {
+          e.preventDefault();
+          setSlashSelectedIndex((prev) => (prev + 1) % matchingQuickReplies.length);
+          return;
+        }
+        if (e.key === "ArrowUp") {
+          e.preventDefault();
+          setSlashSelectedIndex(
+            (prev) => (prev - 1 + matchingQuickReplies.length) % matchingQuickReplies.length
+          );
+          return;
+        }
+        if (e.key === "Enter" || e.key === "Tab") {
+          e.preventDefault();
+          const chosen = matchingQuickReplies[slashSelectedIndex];
+          if (chosen) {
+            applyQuickReply(chosen);
+            return;
+          }
+        }
+        if (e.key === "Escape") {
+          e.preventDefault();
+          setSlashQuery(null);
+          return;
+        }
+      }
+
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
         handleSend();
       }
     },
-    [handleSend]
+    [handleSend, slashQuery, matchingQuickReplies, slashSelectedIndex, applyQuickReply]
   );
 
   const handleChange = useCallback(
     (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-      setText(e.target.value);
+      const val = e.target.value;
+      setText(val);
       adjustHeight();
+
+      const match = val.match(/(?:^|\s)\/([a-zA-Z0-9_-]*)$/);
+      if (match) {
+        setSlashQuery(match[1]);
+        setSlashSelectedIndex(0);
+      } else {
+        setSlashQuery(null);
+      }
     },
     [adjustHeight]
   );
@@ -299,14 +422,6 @@ export function MessageComposer({
   }, [drafting, conversationId, adjustHeight, t]);
 
   // ---- Interactive message + quick replies --------------------------
-
-  const openInteractiveBuilder = useCallback(
-    (seed?: InteractiveMessagePayload) => {
-      setInteractivePayload(seed ?? blankButtonsPayload());
-      setInteractiveOpen(true);
-    },
-    [],
-  );
 
   const sendInteractive = useCallback(() => {
     const result = validateInteractivePayload(interactivePayload);
@@ -629,7 +744,73 @@ export function MessageComposer({
           </Button>
         </div>
       ) : (
-        <div className="flex items-end gap-2">
+        <div className="relative flex items-end gap-2">
+          {/* Slash command Quick-reply autocomplete popover */}
+          {slashQuery !== null && matchingQuickReplies.length > 0 && (
+            <div className="absolute bottom-full left-0 right-0 z-30 mb-2 max-h-56 overflow-y-auto rounded-xl border border-border bg-popover/95 p-1.5 shadow-xl backdrop-blur-md">
+              <div className="flex items-center justify-between border-b border-border/50 px-2 py-1 text-[11px] font-medium text-muted-foreground">
+                <span>Quick replies ({matchingQuickReplies.length})</span>
+                <span className="hidden text-[10px] text-muted-foreground/80 sm:inline">
+                  ↑↓ Navigate · ↵ Select · Esc Close
+                </span>
+              </div>
+              <div className="mt-1 flex flex-col gap-0.5">
+                {matchingQuickReplies.map((qr, idx) => {
+                  const isSelected = idx === slashSelectedIndex;
+                  return (
+                    <button
+                      key={qr.id}
+                      type="button"
+                      onMouseEnter={() => setSlashSelectedIndex(idx)}
+                      onClick={() => applyQuickReply(qr)}
+                      className={cn(
+                        "flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-left text-xs transition-colors",
+                        isSelected
+                          ? "bg-primary text-primary-foreground"
+                          : "text-foreground hover:bg-muted"
+                      )}
+                    >
+                      <div className="flex min-w-0 items-center gap-2">
+                        {qr.kind === "interactive" ? (
+                          <Zap
+                            className={cn(
+                              "h-3.5 w-3.5 shrink-0",
+                              isSelected ? "text-primary-foreground" : "text-primary"
+                            )}
+                          />
+                        ) : (
+                          <MessageSquare className="h-3.5 w-3.5 shrink-0 opacity-70" />
+                        )}
+                        <span className="truncate font-medium">{qr.title}</span>
+                        {qr.shortcut && (
+                          <span
+                            className={cn(
+                              "rounded px-1.5 py-0.5 font-mono text-[10px]",
+                              isSelected
+                                ? "bg-primary-foreground/20 text-primary-foreground"
+                                : "bg-muted text-muted-foreground"
+                            )}
+                          >
+                            /{qr.shortcut}
+                          </span>
+                        )}
+                      </div>
+                      <span
+                        className={cn(
+                          "ml-3 max-w-[200px] truncate text-[11px]",
+                          isSelected
+                            ? "text-primary-foreground/80"
+                            : "text-muted-foreground"
+                        )}
+                      >
+                        {qr.content_text}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
           {/* Attach menu — photo / video / document / voice. */}
           <DropdownMenu>
             <DropdownMenuTrigger
@@ -693,6 +874,30 @@ export function MessageComposer({
               <DropdownMenuItem onClick={() => setQuickReplyOpen(true)}>
                 <Zap className="mr-2 h-4 w-4" />
                 {t("quickReplies")}
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setPaymentRequestOpen(true)}>
+                <CreditCard className="mr-2 h-4 w-4" />
+                Payment Request (bKash/Nagad/Stripe)
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setCourierDialogOpen(true)}>
+                <Truck className="mr-2 h-4 w-4" />
+                Book Courier Delivery (কুরিয়ার পার্সেল)
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setWatchShowcaseOpen(true)}>
+                <Watch className="mr-2 h-4 w-4 text-primary" />
+                Watch Showcase (ঘড়ি ক্যাটালগ ও স্পেক্স)
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setWarrantyOpen(true)}>
+                <Award className="mr-2 h-4 w-4 text-emerald-500" />
+                Issue Digital Warranty (ওয়ারেন্টি কার্ড)
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setAdvanceChargeOpen(true)}>
+                <CreditCard className="mr-2 h-4 w-4 text-amber-500" />
+                Advance Delivery Charge (অগ্রিম চার্জ)
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setReviewRequestOpen(true)}>
+                <Gift className="mr-2 h-4 w-4 text-pink-500" />
+                Review & UGC Offer (রিভিউ ভাউচার)
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -810,6 +1015,53 @@ export function MessageComposer({
         open={quickReplyOpen}
         onOpenChange={setQuickReplyOpen}
         onPick={handlePickQuickReply}
+      />
+
+      {/* Payment request dialog (bKash/Nagad/Stripe/Bank). */}
+      <PaymentRequestDialog
+        open={paymentRequestOpen}
+        onOpenChange={setPaymentRequestOpen}
+        onSend={(formattedText) => onSend(formattedText, replyTo?.id)}
+        onInsertToComposer={(formattedText) => {
+          setText((prev) => (prev ? `${prev}\n\n${formattedText}` : formattedText));
+          textareaRef.current?.focus();
+        }}
+      />
+
+      {/* Courier parcel booking dialog (Steadfast/Pathao/RedX/Paperfly). */}
+      <CourierOrderDialog
+        open={courierDialogOpen}
+        onOpenChange={setCourierDialogOpen}
+        conversationId={conversationId}
+        onSendWhatsAppMessage={(formattedText) => onSend(formattedText, replyTo?.id)}
+      />
+
+      {/* Watch Showcase dialog */}
+      <WatchShowcaseDialog
+        open={watchShowcaseOpen}
+        onOpenChange={setWatchShowcaseOpen}
+        onSendMessage={(formattedText) => onSend(formattedText, replyTo?.id)}
+      />
+
+      {/* Digital Warranty generator dialog */}
+      <WarrantyDialog
+        open={warrantyOpen}
+        onOpenChange={setWarrantyOpen}
+        onSendMessage={(formattedText) => onSend(formattedText, replyTo?.id)}
+      />
+
+      {/* Advance delivery charge dialog */}
+      <AdvanceChargeDialog
+        open={advanceChargeOpen}
+        onOpenChange={setAdvanceChargeOpen}
+        onSendMessage={(formattedText) => onSend(formattedText, replyTo?.id)}
+      />
+
+      {/* Post-delivery review incentive dialog */}
+      <ReviewRequestDialog
+        open={reviewRequestOpen}
+        onOpenChange={setReviewRequestOpen}
+        onSendMessage={(formattedText) => onSend(formattedText, replyTo?.id)}
       />
     </div>
   );

@@ -17,11 +17,18 @@ import { verifyMetaWebhookSignature } from '@/lib/whatsapp/webhook-signature'
 import { runAutomationsForTrigger } from '@/lib/automations/engine'
 import { dispatchInboundToFlows } from '@/lib/flows/engine'
 import { dispatchInboundToAiReply } from '@/lib/ai/auto-reply'
+import { executeAiCommerceAgent } from '@/lib/ai/agent/executor'
+import { loadAiConfig } from '@/lib/ai/config'
+import { transcribeAudioWithWhisper } from '@/lib/ai/whisper'
+import { analyzeWatchImageWithVision } from '@/lib/ai/vision'
 import { dispatchWebhookEvent } from '@/lib/webhooks/deliver'
+import { cancelDelayedFollowup } from '@/lib/queue/queues'
 import {
   handleTemplateWebhookChange,
   isTemplateWebhookField,
 } from '@/lib/whatsapp/template-webhook'
+import { sendPushToAccount } from '@/lib/notifications/web-push'
+import { autoAssignConversation } from '@/lib/assignment/round-robin'
 
 // The `after()` callback in POST runs within this route's max duration.
 // Inbound processing can fan out to per-media Meta verification calls, so
@@ -88,6 +95,17 @@ interface WhatsAppMessage {
   button?: { text?: string; payload?: string }
   /** Present when the customer swipe-replies to one of our messages. */
   context?: { id: string }
+  /** Present when the customer arrived via Click-to-WhatsApp Facebook/Instagram ad */
+  referral?: {
+    source_id?: string
+    source_type?: string
+    source_url?: string
+    headline?: string
+    body?: string
+    media_type?: string
+    image_url?: string
+    video_url?: string
+  }
 }
 
 /** One entry of a failed status's `errors` array, as Meta sends it. */
@@ -359,7 +377,11 @@ async function processWebhook(body: { entry?: WhatsAppWebhookEntry[] }) {
           // Default ON: the column is NOT NULL DEFAULT TRUE, but a row
           // read before migration 039 lands would have it undefined,
           // and losing attachments is the failure mode worth avoiding.
-          config.mirror_inbound_media !== false
+          config.mirror_inbound_media !== false,
+          // Which phone number received this message — needed for
+          // multi-number accounts so each conversation is tagged with
+          // its receiving line (migration 059).
+          config.phone_number_id
         )
       }
     }
@@ -664,7 +686,11 @@ async function processMessage(
   accessToken: string,
   // Per-account opt-out for the inbound-media mirror (migration 039).
   // See parseMessageContent for what it turns off.
-  mirrorMedia: boolean
+  mirrorMedia: boolean,
+  // Which WhatsApp phone number received this message. Stored on the
+  // conversation row (migration 059) so multi-number accounts can
+  // filter the inbox by receiving line.
+  waPhoneNumberId?: string
 ) {
   // Phone number OR business-scoped user ID — Meta sends only the
   // latter for a sender who has adopted a WhatsApp username (#519).
@@ -693,7 +719,8 @@ async function processMessage(
   const convResult = await findOrCreateConversation(
     accountId,
     configOwnerUserId,
-    contactRecord.id
+    contactRecord.id,
+    waPhoneNumberId
   )
   if (!convResult) return
   const conversation = convResult.conversation
@@ -709,6 +736,18 @@ async function processMessage(
     })
   }
 
+  // Auto-assign new or currently unassigned conversation via Round-Robin
+  if (convResult.created || !conversation.assigned_agent_id) {
+    const assignedId = await autoAssignConversation(
+      supabaseAdmin(),
+      accountId,
+      conversation.id
+    )
+    if (assignedId) {
+      conversation.assigned_agent_id = assignedId
+    }
+  }
+
   // Reactions short-circuit here — they aren't messages. We never insert
   // into `messages`, never bump unread_count, never update last_message_text.
   // Done before parseMessageContent so the media-URL fetch is skipped.
@@ -716,6 +755,9 @@ async function processMessage(
     await handleReaction(message, conversation.id, contactRecord.id)
     return
   }
+
+  // Cancel any scheduled follow-up because customer sent a new message
+  void cancelDelayedFollowup(conversation.id)
 
   // Parse message content based on type
   const { contentText, mediaUrl, mediaType, interactiveReplyId } =
@@ -846,6 +888,37 @@ async function processMessage(
     console.error('Error updating conversation:', convError)
   }
 
+  // Update Meta messaging window: 72h for Meta Ads referrals, 24h for normal inbound.
+  // Resets ai_followup_count so customer isn't spammed and we maximize free messaging.
+  try {
+    const isAd = Boolean(message.referral)
+    const nowMs = Date.now()
+    const windowDurationMs = isAd ? 72 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000
+    const candidateExpiry = new Date(nowMs + windowDurationMs).toISOString()
+
+    let finalExpiry = candidateExpiry
+    if (!isAd && (conversation as any).free_window_expires_at) {
+      const existingMs = new Date((conversation as any).free_window_expires_at).getTime()
+      if (existingMs > nowMs + windowDurationMs) {
+        finalExpiry = (conversation as any).free_window_expires_at
+      }
+    }
+
+    await supabaseAdmin()
+      .from('conversations')
+      .update({
+        is_ad_referral: isAd || Boolean((conversation as any).is_ad_referral),
+        free_window_expires_at: finalExpiry,
+        ai_followup_count: 0,
+        last_customer_message_at: new Date(nowMs).toISOString(),
+        ...(message.referral?.headline ? { referral_headline: message.referral.headline } : {}),
+        ...(message.referral?.source_url ? { referral_source_url: message.referral.source_url } : {}),
+      })
+      .eq('id', conversation.id)
+  } catch (windowErr) {
+    console.warn('[webhook] Failed to update free window on conversation:', windowErr)
+  }
+
   // A customer writing again re-opens the thread (issue #409). Kept as a
   // separate conditional statement rather than a `status` field on the
   // update above so the write can be gated on the row's CURRENT status in
@@ -959,14 +1032,50 @@ async function processMessage(
   // the account has enabled it. Awaited inside `after()` (same reason as
   // the webhook dispatch below); `dispatchInboundToAiReply` owns its
   // eligibility gates + try/catch and never throws.
+  // AI Dispatch:
+  // 1. Specialized AI Commerce Sales Agent (handles Facebook Ad entries, product inquiries,
+  //    order collection, risk validation, automatic order creation, and courier booking).
+  let commerceHandled = false
   if (!flowConsumed && !interactiveReplyId && inboundText.trim()) {
+    try {
+      const aiConfig = await loadAiConfig(supabaseAdmin(), accountId)
+      if (aiConfig?.isActive && aiConfig?.autoReplyEnabled) {
+        const referralData = message.referral ? {
+          source_id: message.referral.source_id,
+          source_type: message.referral.source_type,
+          source_url: message.referral.source_url,
+          headline: message.referral.headline,
+          body: message.referral.body,
+          media_type: message.referral.media_type,
+          image_url: message.referral.image_url,
+          video_url: message.referral.video_url,
+        } : null
+
+        const commerceRes = await executeAiCommerceAgent({
+          db: supabaseAdmin(),
+          accountId,
+          conversationId: conversation.id,
+          contactId: contactRecord.id,
+          configOwnerUserId,
+          inboundText,
+          referral: referralData,
+          config: aiConfig,
+        })
+        commerceHandled = Boolean(commerceRes.handled)
+      }
+    } catch (e) {
+      console.error('[webhook] AI Commerce Agent error:', e)
+    }
+  }
+
+  // 2. Generic AI Auto-reply (RAG Knowledge Base fallback).
+  // Runs if the specialized commerce agent did not handle this message.
+  if (!flowConsumed && !interactiveReplyId && inboundText.trim() && !commerceHandled) {
     await dispatchInboundToAiReply({
       accountId,
       conversationId: conversation.id,
       contactId: contactRecord.id,
       configOwnerUserId,
-      // Lets the bot show "typing…" (and mark the message read) while
-      // the reply is generated.
       inboundMessageId: message.id,
     })
   }
@@ -985,6 +1094,30 @@ async function processMessage(
     content_type: contentType,
     text: contentText,
   })
+
+  // Web Push Notification to mobile / desktop PWA subscribers
+  const pushTitle =
+    contactRecord.name?.trim() ||
+    (contactRecord.wa_username ? `@${contactRecord.wa_username}` : null) ||
+    contactRecord.phone ||
+    'New message'
+
+  await sendPushToAccount(
+    supabaseAdmin(),
+    accountId,
+    {
+      title: pushTitle,
+      body: (contentText || (contentType ? `[${contentType}]` : 'New incoming message')).slice(0, 120),
+      icon: '/icon-192.png',
+      tag: conversation.id,
+      data: {
+        url: `/inbox?c=${conversation.id}`,
+        conversationId: conversation.id,
+        messageId: message.id,
+      },
+    },
+    conversation.assigned_to ?? null
+  ).catch((err) => console.error('[web-push] dispatch failed:', err))
 }
 
 async function parseMessageContent(
@@ -1070,10 +1203,48 @@ async function parseMessageContent(
 
     case 'image':
       if (message.image?.id) {
+        const mediaUrl = await verifyAndBuildUrl(message.image.id)
+        let imageContentText = message.image.caption || null
+        if (mirror?.accountId && mediaUrl) {
+          try {
+            const aiConfig = await loadAiConfig(supabaseAdmin(), mirror.accountId)
+            if (aiConfig?.isActive && aiConfig.apiKey) {
+              const { data: activeCatalog } = await supabaseAdmin()
+                .from('products')
+                .select('*')
+                .eq('account_id', mirror.accountId)
+                .eq('is_active', true)
+                .limit(10)
+
+              let visionUrl = mediaUrl
+              if (visionUrl.startsWith('/')) {
+                const info = await getMediaUrl({ mediaId: message.image.id, accessToken })
+                visionUrl = info.url
+              }
+
+              const visionResult = await analyzeWatchImageWithVision({
+                apiKey: aiConfig.apiKey,
+                imageUrl: visionUrl,
+                catalog: activeCatalog || [],
+                caption: message.image.caption,
+              })
+
+              if (visionResult?.isWatch) {
+                const watchDetails = visionResult.matchedProductName
+                  ? `কাস্টমার ${visionResult.matchedProductName} (${visionResult.dialColor || 'কালার'}, ${visionResult.strapType || 'স্ট্র্যাপ'}) এর ছবি পাঠিয়েছেন।`
+                  : visionResult.descriptionBangla
+
+                imageContentText = `📷 [কাস্টমারের পাঠানো ছবি]: ${watchDetails}${message.image.caption ? ` (ক্যাপশন: ${message.image.caption})` : ''}`
+              }
+            }
+          } catch (visionErr) {
+            console.warn('[webhook] Vision image analysis skipped:', visionErr)
+          }
+        }
         return {
           ...empty,
-          contentText: message.image.caption || null,
-          mediaUrl: await verifyAndBuildUrl(message.image.id),
+          contentText: imageContentText,
+          mediaUrl,
           mediaType: message.image.mime_type,
         }
       }
@@ -1110,9 +1281,32 @@ async function parseMessageContent(
 
     case 'audio':
       if (message.audio?.id) {
+        const mediaUrl = await verifyAndBuildUrl(message.audio.id)
+        let transcribedText: string | null = null
+        if (mirror?.accountId) {
+          try {
+            const aiConfig = await loadAiConfig(supabaseAdmin(), mirror.accountId)
+            if (aiConfig?.isActive && aiConfig.apiKey) {
+              const info = await getMediaUrl({ mediaId: message.audio.id, accessToken })
+              const { buffer } = await downloadMedia({ downloadUrl: info.url, accessToken })
+              const transcript = await transcribeAudioWithWhisper({
+                apiKey: aiConfig.apiKey,
+                audioBuffer: buffer,
+                mimeType: message.audio.mime_type,
+                language: 'bn',
+              })
+              if (transcript) {
+                transcribedText = `🎙️ [ভয়েস নোট]: ${transcript}`
+              }
+            }
+          } catch (audioErr) {
+            console.warn('[webhook] Voice note transcription skipped:', audioErr)
+          }
+        }
         return {
           ...empty,
-          mediaUrl: await verifyAndBuildUrl(message.audio.id),
+          contentText: transcribedText,
+          mediaUrl,
           mediaType: message.audio.mime_type,
         }
       }
@@ -1379,6 +1573,7 @@ async function findOrCreateConversation(
   accountId: string,
   configOwnerUserId: string,
   contactId: string,
+  waPhoneNumberId?: string,
 ) {
   // Look for an existing conversation in this account, oldest-first.
   //
@@ -1418,6 +1613,9 @@ async function findOrCreateConversation(
       account_id: accountId,
       user_id: configOwnerUserId,
       contact_id: contactId,
+      // Tag with the receiving phone number (migration 059) so
+      // multi-number inboxes can filter by line.
+      ...(waPhoneNumberId ? { wa_phone_number_id: waPhoneNumberId } : {}),
     })
     .select()
     .single()

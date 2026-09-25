@@ -15,12 +15,26 @@ import {
   DollarSign,
   StickyNote,
   Plus,
+  Truck,
+  ExternalLink,
+  ShieldAlert,
+  ShieldCheck,
+  Award,
+  ShoppingBag,
+  Bot,
+  Sparkles,
+  AlertCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { format } from "date-fns";
 import { useTranslations } from "next-intl";
 import { contactHandle } from "@/lib/whatsapp/wa-identity";
+import { CourierOrderDialog } from "./courier-order-dialog";
+import { WarrantyDialog } from "./warranty-dialog";
+import type { CourierOrderRecord, FraudCheckResult } from "@/lib/courier/types";
+import type { Warranty } from "@/types/watch";
+import type { Order } from "@/types/commerce";
 
 interface ContactSidebarProps {
   contact: Contact | null;
@@ -35,6 +49,14 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
   const [deals, setDeals] = useState<Deal[]>([]);
   const [notes, setNotes] = useState<ContactNote[]>([]);
   const [tags, setTags] = useState<(Tag & { contact_tag_id: string })[]>([]);
+  const [courierOrders, setCourierOrders] = useState<CourierOrderRecord[]>([]);
+  const [courierDialogOpen, setCourierDialogOpen] = useState(false);
+  const [warranties, setWarranties] = useState<Warranty[]>([]);
+  const [warrantyDialogOpen, setWarrantyDialogOpen] = useState(false);
+  const [commerceOrders, setCommerceOrders] = useState<Order[]>([]);
+  const [aiState, setAiState] = useState<string | null>(null);
+  const [aiHandoffSummary, setAiHandoffSummary] = useState<string | null>(null);
+  const [fraudScore, setFraudScore] = useState<FraudCheckResult | null>(null);
   const [newNote, setNewNote] = useState("");
   const [addingNote, setAddingNote] = useState(false);
 
@@ -43,8 +65,8 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
 
     const supabase = createClient();
 
-    // Fetch deals, notes, and tags in parallel
-    const [dealsRes, notesRes, tagsRes] = await Promise.all([
+    // Fetch deals, notes, tags, courier orders, warranties, commerce orders, and conversation in parallel
+    const [dealsRes, notesRes, tagsRes, ordersRes, warrantiesRes, commerceOrdersRes, convRes] = await Promise.all([
       supabase
         .from("deals")
         .select("*, stage:pipeline_stages(*)")
@@ -59,10 +81,39 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
         .from("contact_tags")
         .select("id, tag_id, tags(*)")
         .eq("contact_id", contact.id),
+      supabase
+        .from("courier_orders")
+        .select("*")
+        .eq("contact_id", contact.id)
+        .order("created_at", { ascending: false }),
+      supabase
+        .from("warranties")
+        .select("*")
+        .eq("contact_id", contact.id)
+        .order("created_at", { ascending: false }),
+      supabase
+        .from("orders")
+        .select("*")
+        .eq("contact_id", contact.id)
+        .order("created_at", { ascending: false }),
+      supabase
+        .from("conversations")
+        .select("id, ai_state, ai_handoff_summary")
+        .eq("contact_id", contact.id)
+        .order("updated_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
     ]);
 
     if (dealsRes.data) setDeals(dealsRes.data);
     if (notesRes.data) setNotes(notesRes.data);
+    if (ordersRes.data) setCourierOrders(ordersRes.data as unknown as CourierOrderRecord[]);
+    if (warrantiesRes.data) setWarranties(warrantiesRes.data as unknown as Warranty[]);
+    if (commerceOrdersRes.data) setCommerceOrders(commerceOrdersRes.data as unknown as Order[]);
+    if (convRes.data) {
+      setAiState(convRes.data.ai_state || null);
+      setAiHandoffSummary(convRes.data.ai_handoff_summary || null);
+    }
     if (tagsRes.data) {
       const mapped = tagsRes.data
         .filter((ct: Record<string, unknown>) => ct.tags)
@@ -71,6 +122,18 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
           contact_tag_id: ct.id as string,
         }));
       setTags(mapped);
+    }
+
+    if (contact.phone) {
+      const clean = contact.phone.replace(/\D/g, '').replace(/^(8801|880)/, (m) => m === '8801' ? '01' : '0');
+      if (clean && clean.length >= 11) {
+        fetch(`/api/courier/fraud-check?phone=${encodeURIComponent(clean)}`)
+          .then((res) => res.json())
+          .then((d) => {
+            if (d.fraud_check) setFraudScore(d.fraud_check);
+          })
+          .catch(() => {});
+      }
     }
   }, [contact]);
 
@@ -176,10 +239,73 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
               )}
             </button>
 
+            {fraudScore && (
+              <div
+                className={cn(
+                  "flex items-center justify-between rounded-md px-2.5 py-1.5 text-[11px] font-medium border",
+                  fraudScore.level === "danger" || fraudScore.level === "risky"
+                    ? "bg-red-500/10 border-red-500/30 text-red-500"
+                    : fraudScore.level === "caution"
+                    ? "bg-amber-500/10 border-amber-500/30 text-amber-500"
+                    : fraudScore.level === "trusted" || fraudScore.level === "good"
+                    ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-500"
+                    : "bg-muted border-border text-muted-foreground"
+                )}
+                title={
+                  fraudScore.level === "danger" || fraudScore.level === "risky"
+                    ? `${fraudScore.total_reports} Fraud/Fake Reports on Steadfast. Take advance delivery fee.`
+                    : `Steadfast Score: ${fraudScore.score}/100`
+                }
+              >
+                <span className="flex items-center gap-1.5 capitalize">
+                  {fraudScore.level === "danger" || fraudScore.level === "risky" ? (
+                    <ShieldAlert className="h-3.5 w-3.5 text-red-500" />
+                  ) : (
+                    <ShieldCheck className="h-3.5 w-3.5 text-emerald-500" />
+                  )}
+                  Steadfast: {fraudScore.level}
+                </span>
+                {fraudScore.score !== null && (
+                  <span className="font-mono text-[10px]">{fraudScore.score}/100</span>
+                )}
+                {fraudScore.total_reports > 0 && (
+                  <span className="text-red-400 font-bold text-[10px]">
+                    {fraudScore.total_reports} Reports
+                  </span>
+                )}
+              </div>
+            )}
+
             {contact.email && (
               <div className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-muted-foreground">
                 <Mail className="h-4 w-4 text-muted-foreground" />
                 <span className="truncate">{contact.email}</span>
+              </div>
+            )}
+
+            {/* AI Sales Agent Journey & Handoff Status */}
+            {(aiState || aiHandoffSummary) && (
+              <div className="rounded-lg border border-primary/30 bg-primary/5 p-2.5 space-y-1.5 text-xs">
+                <div className="flex items-center justify-between font-semibold text-primary text-[11px]">
+                  <span className="flex items-center gap-1.5">
+                    <Bot className="h-3.5 w-3.5" />
+                    AI Sales Journey
+                  </span>
+                  {aiState && (
+                    <span className="rounded bg-primary/20 px-1.5 py-0.5 text-[10px] font-mono uppercase text-primary">
+                      {aiState}
+                    </span>
+                  )}
+                </div>
+                {aiHandoffSummary && (
+                  <div className="rounded bg-background/80 p-2 text-[11px] leading-relaxed border border-border/50 text-foreground whitespace-pre-wrap font-sans">
+                    <div className="flex items-center gap-1 text-amber-500 font-semibold mb-1">
+                      <AlertCircle className="h-3 w-3" />
+                      Handoff Context:
+                    </div>
+                    {aiHandoffSummary}
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -260,6 +386,204 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
           {/* Divider */}
           <div className="my-4 border-t border-border" />
 
+          {/* Commerce Orders */}
+          <div>
+            <div className="flex items-center justify-between px-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              <span className="flex items-center gap-2">
+                <ShoppingBag className="h-3.5 w-3.5 text-primary" />
+                Orders ({commerceOrders.length})
+              </span>
+            </div>
+            <div className="mt-2 space-y-2">
+              {commerceOrders.length === 0 ? (
+                <p className="px-1 text-xs text-muted-foreground">No orders yet</p>
+              ) : (
+                commerceOrders.map((o) => (
+                  <div
+                    key={o.id}
+                    className="rounded-lg bg-muted p-2.5 text-xs border border-border/50 space-y-1.5"
+                  >
+                    <div className="flex items-center justify-between font-medium">
+                      <span className="text-foreground font-semibold truncate max-w-[140px]" title={o.product_name}>
+                        {o.product_name}
+                      </span>
+                      <span
+                        className={cn(
+                          "rounded-full px-1.5 py-0.5 text-[9px] uppercase font-bold",
+                          o.status === "DELIVERED"
+                            ? "bg-emerald-500/10 text-emerald-500"
+                            : o.status === "COURIER_BOOKED" || o.status === "CONFIRMED"
+                            ? "bg-blue-500/10 text-blue-500"
+                            : o.status === "CANCELLED" || o.status === "RETURNED"
+                            ? "bg-red-500/10 text-red-500"
+                            : "bg-amber-500/10 text-amber-500"
+                        )}
+                      >
+                        {o.status}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+                      <span>Variant: <strong className="text-foreground">{o.variant || 'Standard'}</strong></span>
+                      <span className="font-bold text-foreground">৳{o.total_amount.toLocaleString()}</span>
+                    </div>
+
+                    {o.risk_level && (
+                      <div className="flex items-center justify-between text-[10px] pt-1 border-t border-border/40">
+                        <span className="text-muted-foreground">Risk:</span>
+                        <span
+                          className={cn(
+                            "font-bold uppercase",
+                            o.risk_level === "HIGH"
+                              ? "text-red-500"
+                              : o.risk_level === "MEDIUM"
+                              ? "text-amber-500"
+                              : "text-emerald-500"
+                          )}
+                        >
+                          {o.risk_level}
+                        </span>
+                      </div>
+                    )}
+
+                    {o.courier_tracking_code && (
+                      <div className="flex items-center justify-between text-[10px] text-primary font-mono pt-0.5">
+                        <span>Tracking:</span>
+                        <span>{o.courier_tracking_code}</span>
+                      </div>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
+          {/* Divider */}
+          <div className="my-4 border-t border-border" />
+
+          {/* Courier Parcels */}
+          <div>
+            <div className="flex items-center justify-between px-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              <span className="flex items-center gap-2">
+                <Truck className="h-3 w-3" />
+                Courier ({courierOrders.length})
+              </span>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 px-1.5 text-xs text-primary hover:text-primary/90"
+                onClick={() => setCourierDialogOpen(true)}
+              >
+                <Plus className="mr-1 h-3 w-3" />
+                Book
+              </Button>
+            </div>
+            <div className="mt-2 space-y-2">
+              {courierOrders.length === 0 ? (
+                <p className="px-1 text-xs text-muted-foreground">No parcels booked</p>
+              ) : (
+                courierOrders.map((order) => (
+                  <div
+                    key={order.id}
+                    className="rounded-lg bg-muted px-3 py-2 text-xs"
+                  >
+                    <div className="flex items-center justify-between font-medium">
+                      <span className="capitalize text-foreground font-semibold">
+                        {order.provider}
+                      </span>
+                      <span
+                        className={cn(
+                          "rounded-full px-1.5 py-0.5 text-[10px] uppercase font-semibold",
+                          order.status === "in_transit" || order.status === "delivered"
+                            ? "bg-green-500/10 text-green-500"
+                            : order.status === "cancelled" || order.status === "failed"
+                            ? "bg-red-500/10 text-red-500"
+                            : "bg-blue-500/10 text-blue-500"
+                        )}
+                      >
+                        {order.status}
+                      </span>
+                    </div>
+                    {order.consignment_id && (
+                      <div className="mt-1 flex items-center justify-between text-muted-foreground text-[11px]">
+                        <span>ID: {order.consignment_id}</span>
+                        {order.tracking_code && (
+                          <span className="font-mono">{order.tracking_code}</span>
+                        )}
+                      </div>
+                    )}
+                    <div className="mt-1 flex items-center justify-between text-muted-foreground text-[11px]">
+                      <span>COD: ৳{order.cod_amount}</span>
+                      {order.tracking_url && (
+                        <a
+                          href={order.tracking_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 text-primary hover:underline"
+                        >
+                          Track <ExternalLink className="h-2.5 w-2.5" />
+                        </a>
+                      )}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
+          {/* Divider */}
+          <div className="my-4 border-t border-border" />
+
+          {/* Digital Warranties */}
+          <div>
+            <div className="flex items-center justify-between px-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              <span className="flex items-center gap-2">
+                <Award className="h-3.5 w-3.5 text-emerald-500" />
+                Warranties ({warranties.length})
+              </span>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 px-1.5 text-xs text-primary hover:text-primary/90"
+                onClick={() => setWarrantyDialogOpen(true)}
+              >
+                <Plus className="mr-1 h-3 w-3" />
+                Issue
+              </Button>
+            </div>
+            <div className="mt-2 space-y-2">
+              {warranties.length === 0 ? (
+                <p className="px-1 text-xs text-muted-foreground">No active warranties</p>
+              ) : (
+                warranties.map((w) => (
+                  <div
+                    key={w.id}
+                    className="rounded-lg bg-muted px-3 py-2 text-xs border border-border/50"
+                  >
+                    <div className="flex items-center justify-between font-medium">
+                      <span className="text-foreground font-semibold truncate max-w-[140px]">
+                        {w.product_name}
+                      </span>
+                      <span className="rounded-full px-1.5 py-0.2 text-[10px] uppercase font-bold bg-emerald-500/10 text-emerald-400">
+                        {w.status}
+                      </span>
+                    </div>
+                    <div className="mt-1 flex items-center justify-between text-muted-foreground text-[11px]">
+                      <span className="font-mono text-primary font-semibold">{w.warranty_code}</span>
+                      <span>{w.duration_months} Mos</span>
+                    </div>
+                    <div className="mt-0.5 text-[10px] text-muted-foreground">
+                      Expires: {format(new Date(w.expires_at), "MMM d, yyyy")}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
+          {/* Divider */}
+          <div className="my-4 border-t border-border" />
+
           {/* Notes */}
           <div>
             <div className="flex items-center gap-2 px-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">
@@ -304,6 +628,20 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
           </div>
         </div>
       </ScrollArea>
+
+      <CourierOrderDialog
+        open={courierDialogOpen}
+        onOpenChange={setCourierDialogOpen}
+        contact={contact}
+        onOrderCreated={(newOrder) => setCourierOrders((prev) => [newOrder, ...prev])}
+      />
+
+      <WarrantyDialog
+        open={warrantyDialogOpen}
+        onOpenChange={setWarrantyDialogOpen}
+        contact={contact}
+        onSendMessage={() => {}}
+      />
     </div>
   );
 }

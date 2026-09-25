@@ -19,6 +19,9 @@
     "primaryNav": "기본 메뉴",
     "dashboard": "대시보드",
     "inbox": "인박스",
+    "products": "상품 및 시계",
+    "orders": "주문 및 판매",
+    "analytics": "매출 및 수익",
     "notifications": "알림",
     "contacts": "연락처",
     "pipelines": "파이프라인",
@@ -244,7 +247,12 @@
       "downloadFailed": "첨부파일을 다운로드할 수 없습니다",
       "viewImage": "이미지 보기",
       "expandVideo": "동영상 확대",
-      "imageAlt": "공유된 이미지"
+      "imageAlt": "공유된 이미지",
+      "transcribe": "음성 메모 텍스트 변환",
+      "transcribeAgain": "다시 변환",
+      "transcribeFailed": "이 오디오를 변환할 수 없습니다",
+      "transcriptLabel": "텍스트 변환",
+      "transcriptEmpty": "음성이 감지되지 않았습니다"
     },
     "mediaViewer": {
       "counter": "{total}개 중 {index}번째",
