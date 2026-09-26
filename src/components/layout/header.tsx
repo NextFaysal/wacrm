@@ -3,7 +3,9 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/hooks/use-auth";
-import { LogOut, Menu, Settings as SettingsIcon, User } from "lucide-react";
+import { LogOut, Menu, Search, Settings as SettingsIcon, User, Volume2, VolumeX } from "lucide-react";
+import { isSoundEnabled, setSoundEnabled, playSound } from "@/lib/sound/sound-fx";
+import { useState, useEffect } from "react";
 import {
   Avatar,
   AvatarFallback,
@@ -21,11 +23,16 @@ import { ModeToggle } from "@/components/layout/mode-toggle";
 const pageTitles: Record<string, string> = {
   "/dashboard": "dashboard",
   "/inbox": "inbox",
+  "/orders": "orders",
+  "/products": "products",
+  "/analytics": "analytics",
   "/notifications": "notifications",
   "/contacts": "contacts",
   "/pipelines": "pipelines",
   "/broadcasts": "broadcasts",
   "/automations": "automations",
+  "/flows": "flows",
+  "/agents": "aiAgents",
   "/settings": "settings",
 };
 
@@ -41,11 +48,13 @@ interface HeaderProps {
   /** Wired to the shell's drawer state. Used only on mobile — the
    *  hamburger button is hidden on lg+. */
   onOpenSidebar?: () => void;
+  /** Opens the command palette (Cmd+K) modal */
+  onOpenCommandPalette?: () => void;
 }
 
 import { useTranslations } from "next-intl";
 
-export function Header({ onOpenSidebar }: HeaderProps) {
+export function Header({ onOpenSidebar, onOpenCommandPalette }: HeaderProps) {
   const t = useTranslations("Header");
   const pathname = usePathname();
   const { profile, signOut } = useAuth();
@@ -56,24 +65,79 @@ export function Header({ onOpenSidebar }: HeaderProps) {
     profile?.email?.charAt(0)?.toUpperCase() ??
     "U";
 
+  const [soundActive, setSoundActive] = useState(true);
+  useEffect(() => {
+    setSoundActive(isSoundEnabled());
+  }, []);
+
+  const toggleSound = () => {
+    const next = !soundActive;
+    setSoundActive(next);
+    setSoundEnabled(next);
+    if (next) playSound("incoming");
+  };
+
   return (
-    <header className="flex h-14 shrink-0 items-center justify-between gap-3 border-b border-border bg-background px-4 lg:px-6">
+    <header className="flex h-14 shrink-0 items-center justify-between gap-3 border-b border-border/80 bg-background/95 px-3.5 backdrop-blur-md sm:px-6">
       <div className="flex min-w-0 items-center gap-2">
-        {/* Hamburger — mobile only. 44×44 hit target per Apple HIG. */}
+        {/* Hamburger — mobile only */}
         <button
           type="button"
           onClick={onOpenSidebar}
           aria-label={t("openMenu")}
-          className="flex h-10 w-10 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground lg:hidden"
+          className="flex h-10 w-10 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-95 lg:hidden"
         >
           <Menu className="h-5 w-5" />
         </button>
-        <h1 className="truncate text-base font-semibold text-foreground sm:text-lg">
+        <h1 className="truncate text-sm font-semibold tracking-tight text-foreground sm:text-base">
           {t(titleKey as string)}
         </h1>
       </div>
 
-      <div className="flex items-center gap-1 sm:gap-2">
+      <div className="flex items-center gap-1.5 sm:gap-3">
+        {/* Command palette search trigger */}
+        {onOpenCommandPalette && (
+          <>
+            {/* Desktop search pill */}
+            <button
+              type="button"
+              onClick={onOpenCommandPalette}
+              className="hidden items-center gap-2 rounded-xl border border-border/80 bg-muted/30 px-3 py-1.5 text-xs text-muted-foreground transition-all hover:border-primary/40 hover:bg-muted/70 hover:text-foreground sm:flex"
+            >
+              <Search className="h-3.5 w-3.5" />
+              <span>Search or jump to...</span>
+              <kbd className="ml-1 rounded border border-border bg-card px-1 py-0.5 text-[10px] font-semibold">
+                Ctrl K
+              </kbd>
+            </button>
+
+            {/* Mobile search icon */}
+            <button
+              type="button"
+              onClick={onOpenCommandPalette}
+              aria-label="Search"
+              className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground sm:hidden"
+            >
+              <Search className="h-4 w-4" />
+            </button>
+          </>
+        )}
+
+        {/* Audio notification sound toggle */}
+        <button
+          type="button"
+          onClick={toggleSound}
+          aria-label={soundActive ? "Mute audio notifications" : "Enable audio notifications"}
+          title={soundActive ? "Sound notifications: ON (Click to mute)" : "Sound notifications: MUTED (Click to unmute)"}
+          className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-95"
+        >
+          {soundActive ? (
+            <Volume2 className="h-4 w-4 text-primary" />
+          ) : (
+            <VolumeX className="h-4 w-4 text-muted-foreground/60" />
+          )}
+        </button>
+
         <ModeToggle />
 
         <DropdownMenu>

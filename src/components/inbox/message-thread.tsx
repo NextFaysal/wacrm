@@ -7,6 +7,7 @@ import { usePresence } from "@/hooks/use-presence";
 import { PresenceDot } from "@/components/presence/presence-dot";
 import { presenceLabel } from "@/lib/presence";
 import { cn } from "@/lib/utils";
+import { playSound } from "@/lib/sound/sound-fx";
 import type {
   Conversation,
   Message,
@@ -21,16 +22,29 @@ import {
   MessageSquare,
   ChevronDown,
   UserPlus,
+  User,
   Check,
   Clock,
   ArrowLeft,
   RefreshCw,
   PanelRightOpen,
   PanelRightClose,
+  Sparkles,
+  Copy,
+  StickyNote,
 } from "lucide-react";
 import { format, isToday, isYesterday, differenceInHours } from "date-fns";
 import { useTranslations } from "next-intl";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -98,14 +112,14 @@ interface MessageThreadProps {
    */
   onRefresh?: () => void;
   /**
-   * Desktop-only contact-panel toggle. The page owns the open/closed
-   * state (it's the one that renders the sidebar), so the thread just
-   * reflects it and asks the page to flip it. Both optional so existing
-   * callers keep working; the toggle button only renders when
-   * `onToggleContactPanel` is wired up.
+   * Desktop-only contact-panel toggle.
    */
   contactPanelOpen?: boolean;
   onToggleContactPanel?: () => void;
+  /**
+   * Mobile-only callback to open the customer 360 profile drawer.
+   */
+  onOpenMobileContact?: () => void;
 }
 
 function formatDateSeparator(dateStr: string, t: ReturnType<typeof useTranslations>): string {
@@ -164,18 +178,72 @@ export function MessageThread({
   onRefresh,
   contactPanelOpen,
   onToggleContactPanel,
+  onOpenMobileContact,
 }: MessageThreadProps) {
   const t = useTranslations("Inbox.messageThread");
   const tTimer = useTranslations("Inbox.sessionTimer");
   const tQuote = useTranslations("Inbox.replyQuote");
 
-  const { user } = useAuth();
+  const { user, accountId } = useAuth();
   const { getPresence, getRow, now } = usePresence();
   const [loading, setLoading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [templateModalOpen, setTemplateModalOpen] = useState(false);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [reactions, setReactions] = useState<MessageReaction[]>([]);
+  const [summarizing, setSummarizing] = useState(false);
+  const [summaryData, setSummaryData] = useState<{ summary: string; aiPowered: boolean } | null>(null);
+  const [summaryDialogOpen, setSummaryDialogOpen] = useState(false);
+  const [savingNote, setSavingNote] = useState(false);
+
+  const handleGenerateSummary = useCallback(async () => {
+    if (!conversation) return;
+    setSummarizing(true);
+    try {
+      const res = await fetch("/api/ai/summarize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ conversation_id: conversation.id }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data.error || "Failed to generate summary");
+        return;
+      }
+      setSummaryData(data);
+      setSummaryDialogOpen(true);
+      playSound("outgoing");
+    } catch {
+      toast.error("Failed to generate summary. Please try again.");
+    } finally {
+      setSummarizing(false);
+    }
+  }, [conversation]);
+
+  const handleSaveSummaryAsNote = useCallback(async () => {
+    if (!contact || !summaryData?.summary || !accountId) return;
+    setSavingNote(true);
+    try {
+      const supabase = createClient();
+      const { data: { session } } = await supabase.auth.getSession();
+      const { error } = await supabase.from("contact_notes").insert({
+        contact_id: contact.id,
+        account_id: accountId,
+        user_id: session?.user?.id,
+        note_text: `[AI Thread Summary]\n${summaryData.summary}`,
+      });
+      if (error) {
+        toast.error("Failed to save note");
+      } else {
+        toast.success("Summary saved to Contact Notes!");
+        playSound("incoming");
+      }
+    } catch {
+      toast.error("Failed to save note");
+    } finally {
+      setSavingNote(false);
+    }
+  }, [contact, summaryData, accountId]);
   // Purely visual spin state for the manual-refresh button. The actual
   // refetch is fire-and-forget through `onRefresh` (which bumps the
   // parent's resyncToken); the 700ms spin is just feedback so the click
@@ -529,6 +597,7 @@ export function MessageThread({
         // with the real DB row. If realtime hasn't arrived yet, at least
         // flip status to 'sent' so the UI stops showing "sending".
         onUpdateMessage(tempId, { status: "sent" });
+        playSound("outgoing");
       } catch (err) {
         console.error("Failed to send message:", err);
         const reason = err instanceof Error ? err.message : "network error";
@@ -936,14 +1005,22 @@ export function MessageThread({
               <ArrowLeft className="h-5 w-5" />
             </button>
           )}
-          <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-muted text-sm font-medium text-foreground">
-            {displayName.charAt(0).toUpperCase()}
-          </div>
-          <div className="min-w-0">
-            <h2 className="truncate text-sm font-semibold text-foreground">{displayName}</h2>
-            <p className="truncate text-xs text-muted-foreground">
-              {contactHandle(contact)}
-            </p>
+          <div
+            onClick={onOpenMobileContact}
+            className={cn(
+              "flex min-w-0 items-center gap-2 sm:gap-3 transition-opacity",
+              onOpenMobileContact && "cursor-pointer active:opacity-70 lg:cursor-default",
+            )}
+          >
+            <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary shadow-xs">
+              {displayName.charAt(0).toUpperCase()}
+            </div>
+            <div className="min-w-0">
+              <h2 className="truncate text-sm font-semibold text-foreground">{displayName}</h2>
+              <p className="truncate text-xs text-muted-foreground">
+                {contactHandle(contact)}
+              </p>
+            </div>
           </div>
           {/* Session timer badge — 72h Meta Ads Free Window vs 24h organic window */}
           <Badge
@@ -962,12 +1039,21 @@ export function MessageThread({
           </Badge>
         </div>
 
-        <div className="flex items-center gap-2">
-          {/* Contact-panel toggle — desktop only. The contact sidebar
-              eats a chunk of horizontal width that crowds the thread on
-              smaller laptops; this lets agents reclaim it when they just
-              want to read and reply. Hidden on mobile, where the sidebar
-              never renders as a permanent panel anyway. Issue #258. */}
+        <div className="flex items-center gap-1.5 sm:gap-2">
+          {/* Mobile contact sheet trigger button */}
+          {onOpenMobileContact && (
+            <button
+              type="button"
+              onClick={onOpenMobileContact}
+              title="Customer profile"
+              aria-label="Customer profile"
+              className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-95 lg:hidden"
+            >
+              <User className="h-4 w-4" />
+            </button>
+          )}
+
+          {/* Contact-panel toggle — desktop only */}
           {onToggleContactPanel && (
             <button
               type="button"
@@ -1011,6 +1097,19 @@ export function MessageThread({
               />
             </button>
           )}
+
+          {/* AI Conversation Briefing Button */}
+          <button
+            type="button"
+            onClick={handleGenerateSummary}
+            disabled={summarizing}
+            title="AI Conversation Briefing"
+            aria-label="AI Conversation Briefing"
+            className="inline-flex h-7 items-center gap-1 rounded-md px-2 text-xs font-medium text-primary hover:bg-primary/10 transition-colors disabled:opacity-60"
+          >
+            <Sparkles className={cn("h-3.5 w-3.5", summarizing && "animate-spin text-amber-500")} />
+            <span className="hidden sm:inline">AI Summary</span>
+          </button>
 
           {/* Status dropdown */}
           <DropdownMenu>
@@ -1223,6 +1322,65 @@ export function MessageThread({
         onActiveIdChange={handleMediaChange}
         contactLabel={contactDisplayName}
       />
+
+      {/* AI Conversation Briefing Dialog */}
+      <Dialog open={summaryDialogOpen} onOpenChange={setSummaryDialogOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-primary">
+                <Sparkles className="h-5 w-5" />
+                <DialogTitle className="text-base font-semibold">AI Conversation Briefing</DialogTitle>
+              </div>
+              {summaryData?.aiPowered ? (
+                <Badge variant="outline" className="border-primary/40 bg-primary/10 text-primary text-[10px]">
+                  Generative AI
+                </Badge>
+              ) : (
+                <Badge variant="outline" className="border-amber-500/40 bg-amber-500/10 text-amber-500 text-[10px]">
+                  Heuristic Analysis
+                </Badge>
+              )}
+            </div>
+            <DialogDescription className="text-xs text-muted-foreground">
+              Instant 3-point briefing synthesized from customer messages.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="my-2 rounded-xl border border-border/60 bg-muted/30 p-4 text-xs leading-relaxed whitespace-pre-wrap font-sans text-foreground">
+            {summaryData?.summary}
+          </div>
+
+          <DialogFooter className="flex-row items-center justify-between sm:justify-between gap-2 pt-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={async () => {
+                if (summaryData?.summary) {
+                  await navigator.clipboard.writeText(summaryData.summary);
+                  toast.success("Summary copied to clipboard!");
+                  playSound("alert");
+                }
+              }}
+              className="gap-1.5 text-xs"
+            >
+              <Copy className="h-3.5 w-3.5" />
+              Copy
+            </Button>
+
+            <Button
+              variant="default"
+              size="sm"
+              disabled={savingNote}
+              onClick={handleSaveSummaryAsNote}
+              className="gap-1.5 text-xs bg-primary hover:bg-primary/90"
+            >
+              <StickyNote className="h-3.5 w-3.5" />
+              {savingNote ? "Saving..." : "Save to Contact Notes"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -283,18 +283,6 @@ export function MessageComposer({
     [],
   );
 
-  const matchingQuickReplies = useMemo(() => {
-    if (slashQuery === null) return [];
-    const q = slashQuery.trim().toLowerCase();
-    return quickRepliesList.filter((qr) => {
-      if (!q) return true;
-      const sMatch = qr.shortcut && qr.shortcut.toLowerCase().includes(q);
-      const tMatch = qr.title.toLowerCase().includes(q);
-      const cMatch = qr.content_text && qr.content_text.toLowerCase().includes(q);
-      return Boolean(sMatch || tMatch || cMatch);
-    });
-  }, [slashQuery, quickRepliesList]);
-
   const applyQuickReply = useCallback(
     (qr: QuickReply) => {
       setSlashQuery(null);
@@ -322,26 +310,138 @@ export function MessageComposer({
     [openInteractiveBuilder, adjustHeight]
   );
 
+  const slashMenuItems = useMemo(() => {
+    if (slashQuery === null) return [];
+    const q = slashQuery.trim().toLowerCase();
+
+    const systemActions = [
+      {
+        id: "sys-charge",
+        kind: "action" as const,
+        title: "Advance Delivery Charge",
+        command: "charge",
+        subtitle: "Request bKash/Nagad advance delivery charge",
+        icon: CreditCard,
+        action: () => {
+          setText((prev) => prev.replace(/(?:^|\s)\/[a-zA-Z0-9_-]*$/, ""));
+          setAdvanceChargeOpen(true);
+        },
+      },
+      {
+        id: "sys-courier",
+        kind: "action" as const,
+        title: "Book Courier (Steadfast/Pathao)",
+        command: "courier",
+        subtitle: "Dispatch order with courier tracking",
+        icon: Truck,
+        action: () => {
+          setText((prev) => prev.replace(/(?:^|\s)\/[a-zA-Z0-9_-]*$/, ""));
+          setCourierDialogOpen(true);
+        },
+      },
+      {
+        id: "sys-order",
+        kind: "action" as const,
+        title: "Create Order & Invoice Link",
+        command: "order",
+        subtitle: "Generate official cash memo link for customer",
+        icon: FileText,
+        action: () => {
+          setText((prev) => prev.replace(/(?:^|\s)\/[a-zA-Z0-9_-]*$/, ""));
+          setPaymentRequestOpen(true);
+        },
+      },
+      {
+        id: "sys-warranty",
+        kind: "action" as const,
+        title: "Issue Digital Warranty Card",
+        command: "warranty",
+        subtitle: "Create official product warranty certificate",
+        icon: ShieldCheck,
+        action: () => {
+          setText((prev) => prev.replace(/(?:^|\s)\/[a-zA-Z0-9_-]*$/, ""));
+          setWarrantyOpen(true);
+        },
+      },
+      {
+        id: "sys-review",
+        kind: "action" as const,
+        title: "Request Customer Review",
+        command: "review",
+        subtitle: "Send 5-star WhatsApp feedback & review link",
+        icon: Award,
+        action: () => {
+          setText((prev) => prev.replace(/(?:^|\s)\/[a-zA-Z0-9_-]*$/, ""));
+          setReviewRequestOpen(true);
+        },
+      },
+      {
+        id: "sys-showcase",
+        kind: "action" as const,
+        title: "Product Showcase Card",
+        command: "showcase",
+        subtitle: "Send interactive watch/product card with image",
+        icon: Watch,
+        action: () => {
+          setText((prev) => prev.replace(/(?:^|\s)\/[a-zA-Z0-9_-]*$/, ""));
+          setWatchShowcaseOpen(true);
+        },
+      },
+      {
+        id: "sys-template",
+        kind: "action" as const,
+        title: "Meta WhatsApp Templates",
+        command: "template",
+        subtitle: "Pick pre-approved business templates",
+        icon: LayoutTemplate,
+        action: () => {
+          setText((prev) => prev.replace(/(?:^|\s)\/[a-zA-Z0-9_-]*$/, ""));
+          onOpenTemplates();
+        },
+      },
+    ];
+
+    const qrItems = quickRepliesList.map((qr) => ({
+      id: `qr-${qr.id}`,
+      kind: "quick_reply" as const,
+      title: qr.title,
+      command: qr.shortcut || "",
+      subtitle: qr.content_text || (qr.kind === "interactive" ? "Interactive buttons" : ""),
+      icon: qr.kind === "interactive" ? Zap : MessageSquare,
+      action: () => applyQuickReply(qr),
+    }));
+
+    const combined = [...systemActions, ...qrItems];
+    if (!q) return combined;
+
+    return combined.filter(
+      (item) =>
+        item.command.toLowerCase().includes(q) ||
+        item.title.toLowerCase().includes(q) ||
+        item.subtitle.toLowerCase().includes(q)
+    );
+  }, [slashQuery, quickRepliesList, applyQuickReply, onOpenTemplates]);
+
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
-      if (slashQuery !== null && matchingQuickReplies.length > 0) {
+      if (slashQuery !== null && slashMenuItems.length > 0) {
         if (e.key === "ArrowDown") {
           e.preventDefault();
-          setSlashSelectedIndex((prev) => (prev + 1) % matchingQuickReplies.length);
+          setSlashSelectedIndex((prev) => (prev + 1) % slashMenuItems.length);
           return;
         }
         if (e.key === "ArrowUp") {
           e.preventDefault();
           setSlashSelectedIndex(
-            (prev) => (prev - 1 + matchingQuickReplies.length) % matchingQuickReplies.length
+            (prev) => (prev - 1 + slashMenuItems.length) % slashMenuItems.length
           );
           return;
         }
         if (e.key === "Enter" || e.key === "Tab") {
           e.preventDefault();
-          const chosen = matchingQuickReplies[slashSelectedIndex];
+          const chosen = slashMenuItems[slashSelectedIndex];
           if (chosen) {
-            applyQuickReply(chosen);
+            chosen.action();
             return;
           }
         }
@@ -357,7 +457,7 @@ export function MessageComposer({
         handleSend();
       }
     },
-    [handleSend, slashQuery, matchingQuickReplies, slashSelectedIndex, applyQuickReply]
+    [handleSend, slashQuery, slashMenuItems, slashSelectedIndex]
   );
 
   const handleChange = useCallback(
@@ -745,66 +845,75 @@ export function MessageComposer({
         </div>
       ) : (
         <div className="relative flex items-end gap-2">
-          {/* Slash command Quick-reply autocomplete popover */}
-          {slashQuery !== null && matchingQuickReplies.length > 0 && (
-            <div className="absolute bottom-full left-0 right-0 z-30 mb-2 max-h-56 overflow-y-auto rounded-xl border border-border bg-popover/95 p-1.5 shadow-xl backdrop-blur-md">
-              <div className="flex items-center justify-between border-b border-border/50 px-2 py-1 text-[11px] font-medium text-muted-foreground">
-                <span>Quick replies ({matchingQuickReplies.length})</span>
-                <span className="hidden text-[10px] text-muted-foreground/80 sm:inline">
+          {/* Slash command Quick-reply & Actions autocomplete popover */}
+          {slashQuery !== null && slashMenuItems.length > 0 && (
+            <div className="absolute bottom-full left-0 right-0 z-30 mb-2 max-h-64 overflow-y-auto rounded-2xl border border-border/80 bg-popover/95 p-1.5 shadow-2xl backdrop-blur-xl">
+              <div className="flex items-center justify-between border-b border-border/50 px-2.5 py-1.5 text-[11px] font-medium text-muted-foreground">
+                <span className="font-semibold text-foreground">
+                  Commands & Quick Replies ({slashMenuItems.length})
+                </span>
+                <span className="hidden text-[10px] text-muted-foreground sm:inline">
                   ↑↓ Navigate · ↵ Select · Esc Close
                 </span>
               </div>
               <div className="mt-1 flex flex-col gap-0.5">
-                {matchingQuickReplies.map((qr, idx) => {
+                {slashMenuItems.map((item, idx) => {
                   const isSelected = idx === slashSelectedIndex;
+                  const Icon = item.icon;
                   return (
                     <button
-                      key={qr.id}
+                      key={item.id}
                       type="button"
                       onMouseEnter={() => setSlashSelectedIndex(idx)}
-                      onClick={() => applyQuickReply(qr)}
+                      onClick={item.action}
                       className={cn(
-                        "flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-left text-xs transition-colors",
+                        "flex w-full items-center justify-between rounded-xl px-2.5 py-2 text-left text-xs transition-colors",
                         isSelected
-                          ? "bg-primary text-primary-foreground"
+                          ? "bg-primary text-primary-foreground shadow-xs"
                           : "text-foreground hover:bg-muted"
                       )}
                     >
-                      <div className="flex min-w-0 items-center gap-2">
-                        {qr.kind === "interactive" ? (
-                          <Zap
-                            className={cn(
-                              "h-3.5 w-3.5 shrink-0",
-                              isSelected ? "text-primary-foreground" : "text-primary"
+                      <div className="flex min-w-0 items-center gap-2.5">
+                        <div
+                          className={cn(
+                            "flex h-7 w-7 shrink-0 items-center justify-center rounded-lg transition-colors",
+                            isSelected
+                              ? "bg-primary-foreground/20 text-primary-foreground"
+                              : item.kind === "action"
+                              ? "bg-primary/10 text-primary"
+                              : "bg-muted text-muted-foreground"
+                          )}
+                        >
+                          <Icon className="h-3.5 w-3.5" />
+                        </div>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <span className="truncate font-semibold">{item.title}</span>
+                            {item.command && (
+                              <span
+                                className={cn(
+                                  "rounded px-1.5 py-0.2 font-mono text-[10px]",
+                                  isSelected
+                                    ? "bg-primary-foreground/20 text-primary-foreground"
+                                    : "bg-muted font-medium text-muted-foreground"
+                                )}
+                              >
+                                /{item.command}
+                              </span>
                             )}
-                          />
-                        ) : (
-                          <MessageSquare className="h-3.5 w-3.5 shrink-0 opacity-70" />
-                        )}
-                        <span className="truncate font-medium">{qr.title}</span>
-                        {qr.shortcut && (
-                          <span
+                          </div>
+                          <p
                             className={cn(
-                              "rounded px-1.5 py-0.5 font-mono text-[10px]",
+                              "truncate text-[11px]",
                               isSelected
-                                ? "bg-primary-foreground/20 text-primary-foreground"
-                                : "bg-muted text-muted-foreground"
+                                ? "text-primary-foreground/80"
+                                : "text-muted-foreground"
                             )}
                           >
-                            /{qr.shortcut}
-                          </span>
-                        )}
+                            {item.subtitle}
+                          </p>
+                        </div>
                       </div>
-                      <span
-                        className={cn(
-                          "ml-3 max-w-[200px] truncate text-[11px]",
-                          isSelected
-                            ? "text-primary-foreground/80"
-                            : "text-muted-foreground"
-                        )}
-                      >
-                        {qr.content_text}
-                      </span>
                     </button>
                   );
                 })}
@@ -932,6 +1041,8 @@ export function MessageComposer({
           </GatedButton>
 
           <textarea
+            id="wacrm-composer-textarea"
+            data-composer="true"
             ref={textareaRef}
             value={text}
             onChange={handleChange}

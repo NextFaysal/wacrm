@@ -16,6 +16,13 @@ import { ContactSidebar } from "@/components/inbox/contact-sidebar";
 import { toast } from "sonner";
 import { WifiOff } from "lucide-react";
 import { cn } from "@/lib/utils";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import { ShortcutsDialog } from "@/components/inbox/shortcuts-dialog";
 
 // Remembers the agent's show/hide choice for the desktop contact panel
 // across reloads and sessions (device-scoped, like the theme prefs).
@@ -69,6 +76,9 @@ function InboxPageInner() {
    * below reconciles to the stored value right after mount instead.
    */
   const [contactPanelOpen, setContactPanelOpen] = useState(true);
+  const [mobileContactSheetOpen, setMobileContactSheetOpen] = useState(false);
+  const [shortcutsDialogOpen, setShortcutsDialogOpen] = useState(false);
+
   useEffect(() => {
     try {
       const stored = localStorage.getItem(CONTACT_PANEL_STORAGE_KEY);
@@ -77,6 +87,21 @@ function InboxPageInner() {
       // localStorage can throw in private-browsing / sandboxed contexts.
     }
   }, []);
+
+  // Automatically hide mobile BottomNav when a conversation is open,
+  // ensuring full screen height for chat and keyboard.
+  useEffect(() => {
+    const bottomNavEl = document.getElementById("wacrm-mobile-bottom-nav");
+    if (!bottomNavEl) return;
+    if (activeConversation) {
+      bottomNavEl.style.display = "none";
+    } else {
+      bottomNavEl.style.display = "";
+    }
+    return () => {
+      if (bottomNavEl) bottomNavEl.style.display = "";
+    };
+  }, [activeConversation]);
 
   const handleToggleContactPanel = useCallback(() => {
     setContactPanelOpen((prev) => {
@@ -572,6 +597,119 @@ function InboxPageInner() {
     [activeConversation]
   );
 
+  // Global Inbox Keyboard Shortcuts (J / K / R / E / ? / Esc)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      const isInputFocused =
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable ||
+          target.getAttribute("role") === "textbox");
+
+      // When inside an input/textarea, Escape blurs the input
+      if (isInputFocused) {
+        if (e.key === "Escape") {
+          target.blur();
+        }
+        return;
+      }
+
+      // '?' key opens shortcuts cheat sheet
+      if (e.key === "?" || (e.shiftKey && e.key === "/")) {
+        e.preventDefault();
+        setShortcutsDialogOpen((prev) => !prev);
+        return;
+      }
+
+      // 'r' key focuses composer textarea
+      if (e.key === "r" || e.key === "R") {
+        if (activeConversation) {
+          e.preventDefault();
+          const composer = document.getElementById("wacrm-composer-textarea");
+          composer?.focus();
+        }
+        return;
+      }
+
+      // 'j' or ArrowDown: Select next conversation in list
+      if (e.key === "j" || e.key === "J" || e.key === "ArrowDown") {
+        if (conversations.length === 0) return;
+        e.preventDefault();
+        const currentIdx = activeConversation
+          ? conversations.findIndex((c) => c.id === activeConversation.id)
+          : -1;
+        const nextIdx = Math.min(currentIdx + 1, conversations.length - 1);
+        if (nextIdx >= 0 && nextIdx !== currentIdx) {
+          handleSelectConversation(conversations[nextIdx]);
+        }
+        return;
+      }
+
+      // 'k' or ArrowUp: Select previous conversation in list
+      if (e.key === "k" || e.key === "K" || e.key === "ArrowUp") {
+        if (conversations.length === 0) return;
+        e.preventDefault();
+        const currentIdx = activeConversation
+          ? conversations.findIndex((c) => c.id === activeConversation.id)
+          : 0;
+        const prevIdx = Math.max(currentIdx - 1, 0);
+        if (prevIdx !== currentIdx) {
+          handleSelectConversation(conversations[prevIdx]);
+        }
+        return;
+      }
+
+      // 'e' key: Toggle active conversation status (open <-> closed)
+      if ((e.key === "e" || e.key === "E") && activeConversation) {
+        e.preventDefault();
+        const nextStatus: ConversationStatus =
+          activeConversation.status === "closed" ? "open" : "closed";
+        handleStatusChange(activeConversation.id, nextStatus);
+        const supabase = createClient();
+        supabase
+          .from("conversations")
+          .update({ status: nextStatus })
+          .eq("id", activeConversation.id)
+          .then(({ error }) => {
+            if (error) {
+              toast.error("Failed to update status");
+            } else {
+              toast.success(`Conversation marked as ${nextStatus}`);
+            }
+          });
+        return;
+      }
+
+      // Escape key: Close modals or deselect active conversation on mobile
+      if (e.key === "Escape") {
+        if (shortcutsDialogOpen) {
+          setShortcutsDialogOpen(false);
+          return;
+        }
+        if (mobileContactSheetOpen) {
+          setMobileContactSheetOpen(false);
+          return;
+        }
+        if (activeConversation && window.innerWidth < 1024) {
+          handleCloseConversation();
+        }
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [
+    activeConversation,
+    conversations,
+    handleSelectConversation,
+    handleStatusChange,
+    handleCloseConversation,
+    shortcutsDialogOpen,
+    mobileContactSheetOpen,
+  ]);
+
   // On mobile (<lg) we show a SINGLE pane — either the list or the
   // thread — rather than cramming both side-by-side. Selecting a
   // conversation slides the thread in; the thread's back button pops
@@ -641,19 +779,32 @@ function InboxPageInner() {
             onRefresh={handleManualRefresh}
             contactPanelOpen={contactPanelOpen}
             onToggleContactPanel={handleToggleContactPanel}
+            onOpenMobileContact={() => setMobileContactSheetOpen(true)}
           />
         </div>
 
-        {/* Right panel: Contact sidebar — desktop only, and only when the
-            agent hasn't collapsed it via the thread-header toggle (#258).
-            On mobile it's always hidden (the `lg:block` below), so the
-            toggle — which is itself desktop-only — never affects it. */}
+        {/* Right panel: Contact sidebar — desktop only */}
         {contactPanelOpen && (
           <div className="hidden lg:block">
             <ContactSidebar contact={activeContact} />
           </div>
         )}
       </div>
+
+      {/* Mobile Contact Profile Drawer (Sheet) */}
+      <Sheet open={mobileContactSheetOpen} onOpenChange={setMobileContactSheetOpen}>
+        <SheetContent side="right" className="w-[90vw] max-w-sm p-0 sm:max-w-md overflow-y-auto">
+          <SheetHeader className="border-b border-border/70 p-4">
+            <SheetTitle className="text-sm font-semibold">Customer 360° Profile</SheetTitle>
+          </SheetHeader>
+          <div className="p-1">
+            <ContactSidebar contact={activeContact} />
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      {/* Keyboard Shortcuts Cheat Sheet Modal */}
+      <ShortcutsDialog open={shortcutsDialogOpen} onOpenChange={setShortcutsDialogOpen} />
     </div>
   );
 }

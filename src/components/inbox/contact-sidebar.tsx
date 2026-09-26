@@ -24,11 +24,15 @@ import {
   Bot,
   Sparkles,
   AlertCircle,
+  AlertTriangle,
+  CheckCircle2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { format } from "date-fns";
 import { useTranslations } from "next-intl";
+import { toast } from "sonner";
+import { playSound } from "@/lib/sound/sound-fx";
 import { contactHandle } from "@/lib/whatsapp/wa-identity";
 import { CourierOrderDialog } from "./courier-order-dialog";
 import { WarrantyDialog } from "./warranty-dialog";
@@ -197,6 +201,13 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
   const displayName = contact.name || contactHandle(contact);
   const initials = displayName.charAt(0).toUpperCase();
 
+  const handleCopyAdvanceFeeMessage = useCallback(async () => {
+    const text = `সম্মানিত গ্রাহক, আপনার অর্ডারটি নিশ্চিত করতে অনুগ্রহ করে ডেলিভারি চার্জ ৳১২০ অগ্রিম বিকাশ বা নগদ (পার্সোনাল) নাম্বারে পাঠিয়ে ট্রানজ্যাকশন আইডি বা লাস্ট ৪ ডিজিট জানান। ধন্যবাদ!`;
+    await navigator.clipboard.writeText(text);
+    playSound("alert");
+    toast.success("Advance delivery fee message copied! Paste in chat.");
+  }, []);
+
   return (
     <div className="flex h-full w-70 flex-col border-l border-border bg-card">
       <ScrollArea className="flex-1">
@@ -239,39 +250,103 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
               )}
             </button>
 
+            {/* Courier & Fraud Intelligence Scorecard */}
             {fraudScore && (
               <div
                 className={cn(
-                  "flex items-center justify-between rounded-md px-2.5 py-1.5 text-[11px] font-medium border",
+                  "rounded-xl border p-3 space-y-2 transition-all",
                   fraudScore.level === "danger" || fraudScore.level === "risky"
-                    ? "bg-red-500/10 border-red-500/30 text-red-500"
+                    ? "bg-red-500/10 border-red-500/30 text-red-600 dark:text-red-400"
                     : fraudScore.level === "caution"
-                    ? "bg-amber-500/10 border-amber-500/30 text-amber-500"
+                    ? "bg-amber-500/10 border-amber-500/30 text-amber-600 dark:text-amber-400"
                     : fraudScore.level === "trusted" || fraudScore.level === "good"
-                    ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-500"
-                    : "bg-muted border-border text-muted-foreground"
+                    ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-600 dark:text-emerald-400"
+                    : "bg-muted/60 border-border text-muted-foreground"
                 )}
-                title={
-                  fraudScore.level === "danger" || fraudScore.level === "risky"
-                    ? `${fraudScore.total_reports} Fraud/Fake Reports on Steadfast. Take advance delivery fee.`
-                    : `Steadfast Score: ${fraudScore.score}/100`
-                }
               >
-                <span className="flex items-center gap-1.5 capitalize">
-                  {fraudScore.level === "danger" || fraudScore.level === "risky" ? (
-                    <ShieldAlert className="h-3.5 w-3.5 text-red-500" />
-                  ) : (
-                    <ShieldCheck className="h-3.5 w-3.5 text-emerald-500" />
+                <div className="flex items-center justify-between text-xs font-semibold">
+                  <div className="flex items-center gap-1.5">
+                    {fraudScore.level === "danger" || fraudScore.level === "risky" ? (
+                      <ShieldAlert className="h-4 w-4 text-red-500" />
+                    ) : (
+                      <ShieldCheck className="h-4 w-4 text-emerald-500" />
+                    )}
+                    <span className="capitalize tracking-tight">
+                      Steadfast: {fraudScore.level}
+                    </span>
+                  </div>
+                  {fraudScore.score !== null && (
+                    <span className="font-mono text-xs font-bold px-1.5 py-0.5 rounded bg-background/80 shadow-xs border border-border/50">
+                      {fraudScore.score}%
+                    </span>
                   )}
-                  Steadfast: {fraudScore.level}
-                </span>
+                </div>
+
+                {/* Score Progress Bar */}
                 {fraudScore.score !== null && (
-                  <span className="font-mono text-[10px]">{fraudScore.score}/100</span>
+                  <div className="space-y-1">
+                    <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
+                      <div
+                        className={cn(
+                          "h-full rounded-full transition-all duration-500",
+                          fraudScore.score >= 75
+                            ? "bg-emerald-500"
+                            : fraudScore.score >= 50
+                            ? "bg-amber-500"
+                            : "bg-red-500"
+                        )}
+                        style={{ width: `${Math.min(100, Math.max(5, fraudScore.score))}%` }}
+                      />
+                    </div>
+                    <div className="flex justify-between text-[10px] text-muted-foreground font-mono">
+                      <span>Delivery Success Rate</span>
+                      <span>{fraudScore.score}%</span>
+                    </div>
+                  </div>
                 )}
+
+                {/* Reports Warning */}
                 {fraudScore.total_reports > 0 && (
-                  <span className="text-red-400 font-bold text-[10px]">
-                    {fraudScore.total_reports} Reports
-                  </span>
+                  <div className="flex items-center gap-1.5 text-[11px] font-semibold text-red-500 bg-red-500/15 rounded-md px-2 py-1">
+                    <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0" />
+                    <span>{fraudScore.total_reports} fake/return report(s) found</span>
+                  </div>
+                )}
+
+                {/* Reasons List */}
+                {fraudScore.reasons && fraudScore.reasons.length > 0 && (
+                  <div className="space-y-1 pt-1 border-t border-border/40 text-[10px]">
+                    <span className="font-medium text-muted-foreground">Reported Reasons:</span>
+                    <div className="flex flex-wrap gap-1 mt-0.5">
+                      {fraudScore.reasons.map((reason, idx) => (
+                        <span
+                          key={idx}
+                          className="rounded bg-background/80 px-1.5 py-0.5 text-[9px] border border-border/50 text-foreground truncate max-w-[200px]"
+                          title={reason}
+                        >
+                          {reason}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Quick Advance Charge Request Action */}
+                {(fraudScore.level === "danger" ||
+                  fraudScore.level === "risky" ||
+                  fraudScore.level === "caution" ||
+                  fraudScore.total_reports > 0 ||
+                  (fraudScore.score !== null && fraudScore.score < 70)) && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleCopyAdvanceFeeMessage}
+                    className="w-full h-7 text-[11px] font-medium gap-1.5 border-red-500/30 bg-background/80 hover:bg-red-500/10 text-red-500 hover:text-red-600 transition-colors shadow-xs"
+                  >
+                    <Copy className="h-3 w-3" />
+                    Request ৳120 Advance Fee
+                  </Button>
                 )}
               </div>
             )}

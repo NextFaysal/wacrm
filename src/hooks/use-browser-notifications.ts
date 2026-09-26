@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { createClient } from "@/lib/supabase/client";
 import type { Message } from "@/types";
+import { playSound } from "@/lib/sound/sound-fx";
 import {
   DEFAULT_NOTIFICATION_LABELS,
   buildNotificationContent,
@@ -138,6 +139,7 @@ export function useBrowserNotifications(): void {
             seen: seenRef.current,
           });
           if (!shouldNotify) return;
+          playSound("incoming");
           void notify(msg);
         },
       )

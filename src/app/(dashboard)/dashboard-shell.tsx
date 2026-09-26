@@ -10,6 +10,9 @@ import { AccountAccessAlert } from "@/components/layout/account-access-alert";
 import { PresenceHeartbeat } from "@/components/presence/presence-heartbeat";
 import { BrowserNotificationsListener } from "@/components/notifications/browser-notifications-listener";
 
+import { CommandPalette } from "@/components/layout/command-palette";
+import { BottomNav } from "@/components/layout/bottom-nav";
+
 // Auth-gated dashboard shell. Extracted from the layout so the layout
 // itself can stay a server component and export metadata (noindex) —
 // client components can't export Next's metadata object.
@@ -23,6 +26,9 @@ function DashboardShellInner({ children }: { children: React.ReactNode }) {
   // always visible and this stays at `false` (ignored by the component).
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const closeSidebar = useCallback(() => setSidebarOpen(false), []);
+
+  // Global command palette state (Cmd+K)
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
 
   useEffect(() => {
     if (!loading && !user) {
@@ -51,17 +57,31 @@ function DashboardShellInner({ children }: { children: React.ReactNode }) {
       {/* Desktop alerts for new customer messages (opt-in via Settings →
           Your profile). Headless — renders nothing. */}
       <BrowserNotificationsListener />
+
+      {/* Global Command Palette (Cmd + K) */}
+      <CommandPalette
+        open={commandPaletteOpen}
+        onOpenChange={setCommandPaletteOpen}
+      />
+
       <Sidebar open={sidebarOpen} onClose={closeSidebar} />
+
       <div className="flex flex-1 flex-col overflow-hidden">
-        <Header onOpenSidebar={() => setSidebarOpen(true)} />
-        {/* Thinner horizontal padding on mobile so cards have room to breathe. */}
-        <main className="flex-1 overflow-y-auto p-4 sm:p-6">
+        <Header
+          onOpenSidebar={() => setSidebarOpen(true)}
+          onOpenCommandPalette={() => setCommandPaletteOpen(true)}
+        />
+        {/* Responsive padding: extra bottom space on mobile for BottomNav */}
+        <main className="flex-1 overflow-y-auto p-3.5 pb-20 sm:p-6 lg:pb-6">
           {/* Above every page: writes are being rejected and here's why.
               Renders nothing unless the account/role failed to resolve. */}
           <AccountAccessAlert />
           {children}
         </main>
       </div>
+
+      {/* Mobile Bottom Navigation */}
+      <BottomNav onOpenMenu={() => setSidebarOpen(true)} />
     </div>
   );
 }
