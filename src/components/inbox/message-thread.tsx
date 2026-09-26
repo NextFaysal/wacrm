@@ -307,7 +307,10 @@ export function MessageThread({
     let cancelled = false;
 
     (async () => {
-      setLoading(true);
+      // Only show full-screen loader on initial mount / switching to a new conversation
+      if (messages.length === 0) {
+        setLoading(true);
+      }
 
       const { data, error } = await supabase
         .from("messages")
@@ -319,8 +322,14 @@ export function MessageThread({
 
       if (error) {
         console.error("Failed to fetch messages:", error);
-      } else {
-        onMessagesLoadedRef.current(data ?? []);
+      } else if (data) {
+        // Only trigger update if there are changes (count, ids, or statuses differ)
+        const isDifferent =
+          data.length !== messages.length ||
+          data.some((m, i) => m.id !== messages[i]?.id || m.status !== messages[i]?.status || m.content_text !== messages[i]?.content_text);
+        if (isDifferent) {
+          onMessagesLoadedRef.current(data);
+        }
       }
 
       if (!cancelled) setLoading(false);

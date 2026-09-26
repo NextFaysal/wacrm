@@ -41,11 +41,13 @@ const HANDOFF_QUEUE = '__queue__';
 const PROVIDER_LABEL: Record<AiProvider, string> = {
   openai: 'OpenAI',
   anthropic: 'Anthropic (Claude)',
+  gemini: 'Google Gemini (AI Studio)',
 };
 
 const KEY_PLACEHOLDER: Record<AiProvider, string> = {
   openai: 'sk-...',
   anthropic: 'sk-ant-...',
+  gemini: 'AIzaSy...',
 };
 
 export function AiConfig() {
@@ -131,6 +133,7 @@ export function AiConfig() {
     const isDefaultModel =
       model === AI_PROVIDER_DEFAULT_MODEL.openai ||
       model === AI_PROVIDER_DEFAULT_MODEL.anthropic ||
+      model === AI_PROVIDER_DEFAULT_MODEL.gemini ||
       model.trim() === '';
     if (isDefaultModel) setModel(AI_PROVIDER_DEFAULT_MODEL[next]);
   };
@@ -278,9 +281,8 @@ export function AiConfig() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="openai">{PROVIDER_LABEL.openai}</SelectItem>
-                    <SelectItem value="anthropic">
-                      {PROVIDER_LABEL.anthropic}
-                    </SelectItem>
+                    <SelectItem value="anthropic">{PROVIDER_LABEL.anthropic}</SelectItem>
+                    <SelectItem value="gemini">{PROVIDER_LABEL.gemini}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -294,6 +296,63 @@ export function AiConfig() {
                   placeholder={AI_PROVIDER_DEFAULT_MODEL[provider]}
                   disabled={disabled}
                 />
+                <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                  <span className="text-[11px] text-muted-foreground">Suggested:</span>
+                  {provider === 'gemini' && (
+                    <>
+                      {['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro'].map((m) => (
+                        <button
+                          key={m}
+                          type="button"
+                          onClick={() => setModel(m)}
+                          className={`text-[11px] px-2 py-0.5 rounded border transition-colors ${
+                            model === m
+                              ? 'bg-primary text-primary-foreground border-primary font-medium'
+                              : 'bg-muted/40 hover:bg-muted text-muted-foreground border-border'
+                          }`}
+                        >
+                          {m}
+                        </button>
+                      ))}
+                    </>
+                  )}
+                  {provider === 'openai' && (
+                    <>
+                      {['gpt-4o-mini', 'gpt-4o'].map((m) => (
+                        <button
+                          key={m}
+                          type="button"
+                          onClick={() => setModel(m)}
+                          className={`text-[11px] px-2 py-0.5 rounded border transition-colors ${
+                            model === m
+                              ? 'bg-primary text-primary-foreground border-primary font-medium'
+                              : 'bg-muted/40 hover:bg-muted text-muted-foreground border-border'
+                          }`}
+                        >
+                          {m}
+                        </button>
+                      ))}
+                    </>
+                  )}
+                  {provider === 'anthropic' && (
+                    <>
+                      {['claude-3-5-haiku-20241022', 'claude-3-5-sonnet-20241022'].map((m) => (
+                        <button
+                          key={m}
+                          type="button"
+                          onClick={() => setModel(m)}
+                          className={`text-[11px] px-2 py-0.5 rounded border transition-colors ${
+                            model === m
+                              ? 'bg-primary text-primary-foreground border-primary font-medium'
+                              : 'bg-muted/40 hover:bg-muted text-muted-foreground border-border'
+                          }`}
+                        >
+                          {m}
+                        </button>
+                      ))}
+                    </>
+                  )}
+                </div>
               </div>
             </div>
 
@@ -345,6 +404,45 @@ export function AiConfig() {
                   {t('testKey')}
                 </Button>
               </div>
+              {provider === 'gemini' && (
+                <p className="text-xs text-muted-foreground">
+                  Get your free Gemini API key from{' '}
+                  <a
+                    href="https://aistudio.google.com/app/apikey"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="underline text-primary hover:text-primary/80"
+                  >
+                    Google AI Studio (aistudio.google.com)
+                  </a>
+                </p>
+              )}
+              {provider === 'openai' && (
+                <p className="text-xs text-muted-foreground">
+                  Get your OpenAI API key from{' '}
+                  <a
+                    href="https://platform.openai.com/api-keys"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="underline text-primary hover:text-primary/80"
+                  >
+                    OpenAI Platform (platform.openai.com)
+                  </a>
+                </p>
+              )}
+              {provider === 'anthropic' && (
+                <p className="text-xs text-muted-foreground">
+                  Get your Claude API key from{' '}
+                  <a
+                    href="https://console.anthropic.com/settings/keys"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="underline text-primary hover:text-primary/80"
+                  >
+                    Anthropic Console (console.anthropic.com)
+                  </a>
+                </p>
+              )}
             </div>
 
             <div className="space-y-2">

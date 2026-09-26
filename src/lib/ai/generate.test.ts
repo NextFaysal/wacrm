@@ -192,3 +192,56 @@ describe('generateReply — Anthropic', () => {
     expect(body.messages).toHaveLength(1)
   })
 })
+
+describe('generateReply — Google Gemini (AI Studio)', () => {
+  it('calls the Google Gemini OpenAI-compatible endpoint with expected payload', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      okResponse({
+        choices: [{ message: { content: 'Gemini reply' } }],
+        usage: { prompt_tokens: 15, completion_tokens: 8, total_tokens: 23 },
+      }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const res = await generateReply({
+      config: config({ provider: 'gemini', model: 'gemini-2.5-flash', apiKey: 'AIzaSy-test' }),
+      systemPrompt: 'You are helpful',
+      messages: [{ role: 'user', content: 'Hello Gemini' }],
+    })
+
+    expect(res).toEqual({
+      text: 'Gemini reply',
+      handoff: false,
+      usage: { promptTokens: 15, completionTokens: 8, totalTokens: 23 },
+    })
+
+    const [url, opts] = fetchMock.mock.calls[0]
+    expect(url).toContain('generativelanguage.googleapis.com')
+    expect(opts.headers['Authorization']).toBe('Bearer AIzaSy-test')
+    const body = JSON.parse(opts.body)
+    expect(body.model).toBe('gemini-2.5-flash')
+    expect(body.messages[0]).toEqual({ role: 'system', content: 'You are helpful' })
+    expect(body.messages[1]).toEqual({ role: 'user', content: 'Hello Gemini' })
+  })
+
+  it('detects handoff sentinel in Gemini output', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        okResponse({
+          choices: [{ message: { content: 'Contacting agent [[HANDOFF]]' } }],
+        }),
+      ),
+    )
+
+    const res = await generateReply({
+      config: config({ provider: 'gemini', apiKey: 'AIzaSy-test' }),
+      systemPrompt: 'sys',
+      messages: [{ role: 'user', content: 'agent please' }],
+    })
+
+    expect(res.handoff).toBe(true)
+    expect(res.text).toBe('Contacting agent')
+  })
+})
+

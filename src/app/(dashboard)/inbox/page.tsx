@@ -391,6 +391,24 @@ function InboxPageInner() {
   }, []);
 
   /**
+   * Automatic Realtime / Live polling fallback:
+   * When WebSocket is not connected (e.g. self-hosted Supabase without Realtime container,
+   * network firewall, or connection drop), automatically poll every 2.5 seconds while the tab
+   * is visible so incoming WhatsApp messages and conversation updates appear instantly in real-time
+   * without requiring manual page refresh. When WebSocket is connected, poll every 20s as safety net.
+   */
+  useEffect(() => {
+    const pollInterval = isConnected ? 20000 : 2500;
+    const timer = setInterval(() => {
+      if (typeof document !== "undefined" && document.visibilityState === "visible") {
+        setResyncToken((n) => n + 1);
+      }
+    }, pollInterval);
+
+    return () => clearInterval(timer);
+  }, [isConnected]);
+
+  /**
    * Manual refresh trigger for the thread-header refresh button.
    * Bumps the same resyncToken the reconnect / visibility paths use,
    * so it goes through the existing dedupe & refetch plumbing — no

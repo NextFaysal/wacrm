@@ -1227,6 +1227,7 @@ async function parseMessageContent(
                 imageUrl: visionUrl,
                 catalog: activeCatalog || [],
                 caption: message.image.caption,
+                provider: aiConfig.provider,
               })
 
               if (visionResult?.isWatch) {

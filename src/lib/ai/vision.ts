@@ -6,6 +6,7 @@ interface VisionAnalysisArgs {
   imageUrl: string;
   catalog?: Product[];
   caption?: string | null;
+  provider?: 'openai' | 'anthropic' | 'gemini';
 }
 
 export interface WatchVisionResult {
@@ -55,29 +56,42 @@ Return ONLY a valid JSON object with this exact shape:
 }
 `;
 
-    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+    const isGemini = args.provider === 'gemini';
+    const endpoint = isGemini
+      ? 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions'
+      : 'https://api.openai.com/v1/chat/completions';
+    const visionModel = isGemini ? 'gemini-2.5-flash' : 'gpt-4o-mini';
+
+    const requestBody: Record<string, unknown> = {
+      model: visionModel,
+      messages: [
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: promptText },
+            {
+              type: 'image_url',
+              image_url: { url: imageUrl, detail: 'low' },
+            },
+          ],
+        },
+      ],
+      response_format: { type: 'json_object' },
+    };
+
+    if (isGemini) {
+      requestBody.max_tokens = 500;
+    } else {
+      requestBody.max_completion_tokens = 500;
+    }
+
+    const res = await fetch(endpoint, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        messages: [
-          {
-            role: 'user',
-            content: [
-              { type: 'text', text: promptText },
-              {
-                type: 'image_url',
-                image_url: { url: imageUrl, detail: 'low' },
-              },
-            ],
-          },
-        ],
-        response_format: { type: 'json_object' },
-        max_completion_tokens: 500,
-      }),
+      body: JSON.stringify(requestBody),
       signal: AbortSignal.timeout(timeoutMs),
     });
 

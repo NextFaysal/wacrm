@@ -18,6 +18,7 @@ export interface LlmAgentResult {
 }
 
 const OPENAI_URL = 'https://api.openai.com/v1/chat/completions';
+const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 const ANTHROPIC_VERSION = '2023-06-01';
 
@@ -27,7 +28,21 @@ export async function runLlmAgentWithTools(args: RunLlmAgentArgs): Promise<LlmAg
   if (config.provider === 'anthropic') {
     return runAnthropicToolLoop({
       apiKey: config.apiKey,
-      model: config.model || 'claude-haiku-4-5-20251001',
+      model: config.model || 'claude-3-5-haiku-20241022',
+      systemPrompt,
+      messages,
+      tools,
+      toolContext,
+      maxTurns,
+    });
+  }
+
+  if (config.provider === 'gemini') {
+    return runOpenAiToolLoop({
+      endpoint: GEMINI_URL,
+      providerName: 'Google Gemini',
+      apiKey: config.apiKey,
+      model: config.model || 'gemini-2.5-flash',
       systemPrompt,
       messages,
       tools,
@@ -38,8 +53,10 @@ export async function runLlmAgentWithTools(args: RunLlmAgentArgs): Promise<LlmAg
 
   // Default: OpenAI
   return runOpenAiToolLoop({
+    endpoint: OPENAI_URL,
+    providerName: 'OpenAI',
     apiKey: config.apiKey,
-    model: config.model || 'gpt-5.4-mini',
+    model: config.model || 'gpt-4o-mini',
     systemPrompt,
     messages,
     tools,
@@ -49,9 +66,11 @@ export async function runLlmAgentWithTools(args: RunLlmAgentArgs): Promise<LlmAg
 }
 
 // -------------------------------------------------------------
-// OpenAI Tool-Calling Runner
+// OpenAI & Gemini Tool-Calling Runner
 // -------------------------------------------------------------
 async function runOpenAiToolLoop(params: {
+  endpoint?: string;
+  providerName?: string;
   apiKey: string;
   model: string;
   systemPrompt: string;
@@ -60,7 +79,17 @@ async function runOpenAiToolLoop(params: {
   toolContext: ToolContext;
   maxTurns: number;
 }): Promise<LlmAgentResult> {
-  const { apiKey, model, systemPrompt, messages, tools, toolContext, maxTurns } = params;
+  const {
+    endpoint = OPENAI_URL,
+    providerName = 'OpenAI',
+    apiKey,
+    model,
+    systemPrompt,
+    messages,
+    tools,
+    toolContext,
+    maxTurns,
+  } = params;
   const timeoutMs = aiRequestTimeoutMs();
   const toolsExecuted: string[] = [];
 
@@ -83,25 +112,31 @@ async function runOpenAiToolLoop(params: {
   let finalReplyText = '';
 
   for (let turn = 0; turn < maxTurns; turn++) {
-    const res = await fetch(OPENAI_URL, {
+    const requestBody: Record<string, unknown> = {
+      model,
+      messages: conversationChain,
+      tools: formattedTools,
+      tool_choice: 'auto',
+    };
+    if (providerName === 'OpenAI') {
+      requestBody.max_completion_tokens = 1024;
+    } else {
+      requestBody.max_tokens = 1024;
+    }
+
+    const res = await fetch(endpoint, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        model,
-        messages: conversationChain,
-        tools: formattedTools,
-        tool_choice: 'auto',
-        max_completion_tokens: 1024,
-      }),
+      body: JSON.stringify(requestBody),
       signal: AbortSignal.timeout(timeoutMs),
     });
 
     if (!res.ok) {
       const errText = await res.text().catch(() => '');
-      throw new Error(`OpenAI API error [${res.status}]: ${errText.slice(0, 300)}`);
+      throw new Error(`${providerName} API error [${res.status}]: ${errText.slice(0, 300)}`);
     }
 
     const data = await res.json();

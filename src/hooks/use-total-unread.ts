@@ -25,7 +25,7 @@ export function useTotalUnread(): number {
 
     // Initial load. RLS scopes this to the signed-in user automatically —
     // no explicit user_id filter needed here.
-    (async () => {
+    const fetchTotal = async () => {
       const { data, error } = await supabase
         .from("conversations")
         .select("id, unread_count");
@@ -40,7 +40,16 @@ export function useTotalUnread(): number {
       }
       countsRef.current = map;
       setTotal(sum);
-    })();
+    };
+
+    fetchTotal();
+
+    // Fallback interval to keep unread badges updated if WebSocket is disconnected
+    const pollTimer = setInterval(() => {
+      if (typeof document !== "undefined" && document.visibilityState === "visible") {
+        fetchTotal();
+      }
+    }, 10000);
 
     const channel = supabase
       .channel("total-unread-realtime")
@@ -66,6 +75,7 @@ export function useTotalUnread(): number {
 
     return () => {
       cancelled = true;
+      clearInterval(pollTimer);
       supabase.removeChannel(channel);
     };
   }, []);
