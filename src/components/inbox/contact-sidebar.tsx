@@ -190,6 +190,13 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
     setAddingNote(false);
   }, [contact, newNote, accountId]);
 
+  const handleCopyAdvanceFeeMessage = useCallback(async () => {
+    const text = `সম্মানিত গ্রাহক, আপনার অর্ডারটি নিশ্চিত করতে অনুগ্রহ করে ডেলিভারি চার্জ ৳১২০ অগ্রিম বিকাশ বা নগদ (পার্সোনাল) নাম্বারে পাঠিয়ে ট্রানজ্যাকশন আইডি বা লাস্ট ৪ ডিজিট জানান। ধন্যবাদ!`;
+    await navigator.clipboard.writeText(text);
+    playSound("alert");
+    toast.success("Advance delivery fee message copied! Paste in chat.");
+  }, []);
+
   if (!contact) {
     return (
       <div className="flex h-full w-70 items-center justify-center border-l border-border bg-card">
@@ -200,13 +207,6 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
 
   const displayName = contact.name || contactHandle(contact);
   const initials = displayName.charAt(0).toUpperCase();
-
-  const handleCopyAdvanceFeeMessage = useCallback(async () => {
-    const text = `সম্মানিত গ্রাহক, আপনার অর্ডারটি নিশ্চিত করতে অনুগ্রহ করে ডেলিভারি চার্জ ৳১২০ অগ্রিম বিকাশ বা নগদ (পার্সোনাল) নাম্বারে পাঠিয়ে ট্রানজ্যাকশন আইডি বা লাস্ট ৪ ডিজিট জানান। ধন্যবাদ!`;
-    await navigator.clipboard.writeText(text);
-    playSound("alert");
-    toast.success("Advance delivery fee message copied! Paste in chat.");
-  }, []);
 
   return (
     <div className="flex h-full w-70 flex-col border-l border-border bg-card">
