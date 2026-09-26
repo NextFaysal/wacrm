@@ -372,9 +372,18 @@ export async function executeAiCommerceAgent(args: ExecuteAgentArgs): Promise<Ag
         history.push({ role: 'user', content: inboundText });
       }
 
-      // 4. Construct high-converting Bengali sales agent persona prompt
+      // 4. Load account business name dynamically
+      const { data: accountRow } = await db
+        .from('accounts')
+        .select('name')
+        .eq('id', accountId)
+        .maybeSingle();
+
+      const storeName = accountRow?.name || 'আমাদের শপ';
+
+      // 5. Construct high-converting Bengali sales agent persona prompt
       const systemPrompt = buildBanglaSalesPrompt({
-        storeName: 'Watch Gallery BD',
+        storeName,
         customerName: memory.customer_name || null,
         customerPhone: memory.customer_phone || null,
         isReturningCustomer: Boolean(memory.order_id),

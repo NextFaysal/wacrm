@@ -26,21 +26,26 @@ export async function analyzeWatchImageWithVision(args: VisionAnalysisArgs): Pro
   try {
     const timeoutMs = aiRequestTimeoutMs() * 2;
 
-    const catalogList = catalog.slice(0, 10).map((p) => (
-      `- ID: ${p.id} | Name: ${p.name} | Price: ৳${p.price} | Colors: ${p.colors?.join(', ') || 'Standard'} | Strap: ${p.strap_type || 'N/A'}`
-    )).join('\n');
+    const catalogList = catalog.slice(0, 10).map((p) => {
+      const details = [
+        p.category ? `Category: ${p.category}` : null,
+        p.colors?.length ? `Colors: ${p.colors.join(', ')}` : null,
+        p.strap_type ? `Variant/Spec: ${p.strap_type}` : null,
+      ].filter(Boolean).join(' | ');
+      return `- ID: ${p.id} | Name: ${p.name} | Price: ৳${p.price}${details ? ` | ${details}` : ''}`;
+    }).join('\n');
 
     const promptText = `
-You are an expert luxury and fashion watch analyst for a Bangladeshi watch store.
+You are an expert e-commerce product recognition specialist for an online store in Bangladesh.
 A customer on WhatsApp sent this image${caption ? ` with caption: "${caption}"` : ''}.
 
-Here is our active watch catalog:
+Here is our active store product catalog:
 ${catalogList || 'No catalog available.'}
 
 Analyze the photo:
-1. Is this a watch or watch screenshot?
-2. Which watch from our catalog does this match or look closest to?
-3. What is the dial color, strap material, and overall style?
+1. Is this a physical product, merchandise, fashion item, watch, or product screenshot?
+2. Which product from our active catalog does this match or look closest to?
+3. What is the color, style, or variant?
 4. Write a warm 1-sentence Bengali description for our sales agent.
 
 Return ONLY a valid JSON object with this exact shape:
@@ -48,11 +53,11 @@ Return ONLY a valid JSON object with this exact shape:
   "isWatch": true,
   "matchedProductId": "catalog-id-or-null",
   "matchedProductName": "matching-product-name-or-null",
-  "dialColor": "Black / Silver / Blue / etc",
-  "strapType": "Leather / Stainless Steel / etc",
-  "brandName": "Curren / Naviforce / Poedagar / etc",
-  "descriptionBangla": "কাস্টমার ব্ল্যাক ডায়াল ও লেদার স্ট্র্যাপের প্রিমিয়াম ওয়াচের ছবি পাঠিয়েছেন।",
-  "suggestedPitch": "জি ভাইয়া! চমৎকার পছন্দ! এটি আমাদের প্রিমিয়াম মডেল..."
+  "dialColor": "Color or null",
+  "strapType": "Variant, Size or Style",
+  "brandName": "Brand or Category name",
+  "descriptionBangla": "কাস্টমার অমুক প্রোডাক্টের ছবি পাঠিয়েছেন।",
+  "suggestedPitch": "জি ভাইয়া! চমৎকার পছন্দ! এটি আমাদের প্রিমিয়াম কোয়ালিটির প্রোডাক্ট..."
 }
 `;
 
@@ -108,7 +113,7 @@ Return ONLY a valid JSON object with this exact shape:
     const parsed = JSON.parse(content) as WatchVisionResult;
     return parsed;
   } catch (err) {
-    console.error('[vision] Error analyzing watch image:', err);
+    console.error('[vision] Error analyzing product image:', err);
     return null;
   }
 }

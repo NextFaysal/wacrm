@@ -66,20 +66,23 @@ export async function matchProductFromInbound(
     }
   }
 
-  // 4. Match brand keywords (Curren, Naviforce, Casio, Poedagar, etc.)
+  // 4. Match dynamic brand and category keywords from store products
   if (!matchedProduct) {
-    const brands = ['curren', 'naviforce', 'casio', 'poedagar', 'edifice', 't800'];
-    for (const brand of brands) {
-      if (combinedSearchSource.includes(brand)) {
-        matchedProduct = products.find((p) => p.name.toLowerCase().includes(brand));
-        if (matchedProduct) break;
+    for (const p of products) {
+      const keywords = [
+        ...p.name.toLowerCase().split(/\s+/),
+        ...(p.category ? p.category.toLowerCase().split(/\s+/) : []),
+      ].filter((w: string) => w.length >= 3);
+
+      if (keywords.some((k: string) => combinedSearchSource.includes(k))) {
+        matchedProduct = p;
+        break;
       }
     }
   }
 
-  // 5. Default fallback for standard ad template ("আমি এই ঘড়িটি সম্পর্কে জানতে চাই")
-  if (!matchedProduct && combinedSearchSource.includes('ঘড়ি')) {
-    // Select the first active featured watch
+  // 5. Default fallback for standard ad template ("আমি এই প্রোডাক্টটি সম্পর্কে জানতে চাই")
+  if (!matchedProduct && (referral || /জানতে চাই|অর্ডার|দাম কত|নিতে চাই|অফার|প্রোডাক্ট|পণ্য|ঘড়ি/i.test(combinedSearchSource))) {
     matchedProduct = products[0];
   }
 
@@ -89,7 +92,7 @@ export async function matchProductFromInbound(
 
   // Build color images list (fallback to main product image if variant image absent)
   const colorImages: Array<{ color: string; imageUrl: string }> = [];
-  const colors = matchedProduct.colors?.length ? matchedProduct.colors : ['Black', 'Silver'];
+  const colors = matchedProduct.colors?.length ? matchedProduct.colors : [];
   for (const c of colors) {
     if (matchedProduct.image_url) {
       colorImages.push({ color: c, imageUrl: matchedProduct.image_url });
@@ -101,14 +104,18 @@ export async function matchProductFromInbound(
   const price = matchedProduct.price.toLocaleString('en-BD');
   const colorsText = colors.join(', ');
 
+  const bonusLine = matchedProduct.warranty_months
+    ? `🛡️ সাথে পাচ্ছেন ${matchedProduct.warranty_months} মাসের অফিশিয়াল ওয়ারেন্টি কার্ড।`
+    : `⭐ ১০০% প্রিমিয়াম ও অরিজিনাল কোয়ালিটি নিশ্চিত।`;
+
   const initialPitchText =
     `🔥 আমাদের *Super Offer* চলছে!\n\n` +
     `*${matchedProduct.name}*\n` +
     `💵 অফার মূল্য মাত্র *৳${price}*${regular}!\n` +
     `🚚 সারা বাংলাদেশে ক্যাশ অন হোম ডেলিভারি সুবিধা।\n` +
-    `🎁 সাথে পাচ্ছেন ফ্রি গিফট ব্যাটারি ও ১২ মাসের অফিশিয়াল ওয়ারেন্টি কার্ড 🛡️\n\n` +
-    `Available Colors: *${colorsText}*\n\n` +
-    `আপনি কোন কালারটি নিতে চান? 😊`;
+    `${bonusLine}\n\n` +
+    (colorsText ? `Available: *${colorsText}*\n\n` : '') +
+    `আপনি কোনটি নিতে চান? 😊`;
 
   return {
     matched: true,

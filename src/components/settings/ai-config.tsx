@@ -50,6 +50,43 @@ const KEY_PLACEHOLDER: Record<AiProvider, string> = {
   gemini: 'AIzaSy...',
 };
 
+const BUSINESS_PRESETS = [
+  {
+    label: '⌚ ঘড়ি ও এক্সেসরিজ',
+    prompt: `আমাদের শপ প্রিমিয়াম ও ক্যাজুয়াল ঘড়ি বিক্রি করে।
+- পলিসি: ১ বছরের মেশিন ওয়ারেন্টি এবং ৬ মাসের ব্যাটারি ওয়ারেন্টি।
+- বোনাস: প্রতিটি ঘড়ির সাথে ১টি অতিরিক্ত ফ্রি ব্যাটারি ও অফিশিয়াল বক্স।
+- ডেলিভারি: সারা দেশে ক্যাশ অন ডেলিভারি, পার্সেল খুলে চেক করে পেমেন্ট করার সুবিধা।`,
+  },
+  {
+    label: '👗 পোশাক ও ফ্যাশন',
+    prompt: `আমাদের শপ প্রিমিয়াম কোয়ালিটির পোশাক (শাড়ি, থ্রি-পিস, পাঞ্জাবি, টি-শার্ট) বিক্রি করে।
+- সাইজ ও কালার: কাস্টমারের সঠিক সাইজ (M, L, XL, XXL) ও পছন্দের কালার জেনে নিবেন।
+- পলিসি: কোনো সাইজ সমস্যা হলে ৩ দিনের মধ্যে ফ্রি সাইজ এক্সচেঞ্জ সুবিধা রয়েছে।
+- ডেলিভারি: সারা দেশে ক্যাশ অন ডেলিভারি, পার্সেল চেক করে টাকা দেওয়ার সুবিধা।`,
+  },
+  {
+    label: '🎧 ইলেকট্রনিক্স ও গ্যাজেট',
+    prompt: `আমাদের শপ অরিজিনাল ইলেকট্রনিক্স ও গ্যাজেট আইটেম বিক্রি করে।
+- পলিসি: ৭ দিনের রিপ্লেসমেন্ট গ্যারান্টি এবং ৬ মাসের সার্ভিস ওয়ারেন্টি।
+- ডেলিভারি: ঢাকার ভেতরে ২৪-৪৮ ঘন্টা, ঢাকার বাইরে ৪৮-৭২ ঘন্টা। ক্যাশ অন ডেলিভারি প্রযোজ্য।
+- কাস্টমারকে গ্যাজেটের ফিচার ও ব্যাটারি ব্যাকআপ সম্পর্কে পরিষ্কার তথ্য দিন।`,
+  },
+  {
+    label: '💄 কসমেটিকস ও স্কিনকেয়ার',
+    prompt: `আমাদের শপ ১০০% অথেনটিক ও ব্র্যান্ডেড স্কিনকেয়ার এবং কসমেটিকস পণ্য বিক্রি করে।
+- পলিসি: কোনো ডুপ্লিকেট বা ক্লোন প্রোডাক্ট নেই, ১০০% অরিজিনাল ও অথেনটিক।
+- কাস্টমারের স্কিন টাইপ (অয়েলি, ড্রাই, সেনসিটিভ) অনুযায়ী প্রোডাক্ট সাজেস্ট করুন।
+- ডেলিভারি: দ্রুততম ক্যাশ অন ডেলিভারি সুবিধা।`,
+  },
+  {
+    label: '🛍️ সাধারণ ই-কমার্স (General Store)',
+    prompt: `আমাদের অনলাইন শপ বিশ্বস্ততার সাথে সেরা কোয়ালিটির পণ্য সরবরাহ করে।
+- পলিসি: ১০০% কোয়ালিটি নিশ্চয়তা এবং কোনো সমস্যা থাকলে তাৎক্ষণিক রিটার্ন/রিপ্লেসমেন্ট।
+- ডেলিভারি: সারা দেশে ক্যাশ অন হোম ডেলিভারি, পার্সেল দেখে পেমেন্ট করার সুবিধা।`,
+  },
+];
+
 export function AiConfig() {
   const { accountId, accountRole, profileLoading } = useAuth();
   const canEdit = accountRole ? canEditSettings(accountRole) : false;
@@ -488,7 +525,26 @@ export function AiConfig() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="ai-prompt">{t('businessContext')}</Label>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
+                <Label htmlFor="ai-prompt">{t('businessContext')}</Label>
+                <span className="text-[11px] text-muted-foreground">যেকোনো প্রোডাক্টের জন্য কুইক টেমপ্লেট বেছে নিন:</span>
+              </div>
+              <div className="flex flex-wrap gap-1.5 pb-1">
+                {BUSINESS_PRESETS.map((preset) => (
+                  <button
+                    key={preset.label}
+                    type="button"
+                    onClick={() => {
+                      setSystemPrompt(preset.prompt);
+                      toast.success(`"${preset.label}" টেমপ্লেট লোড করা হয়েছে`);
+                    }}
+                    disabled={disabled}
+                    className="text-[11px] px-2.5 py-1 rounded-md border border-border bg-muted/40 hover:bg-muted text-foreground transition-colors"
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
               <Textarea
                 id="ai-prompt"
                 value={systemPrompt}
@@ -497,6 +553,9 @@ export function AiConfig() {
                 rows={5}
                 disabled={disabled}
               />
+              <p className="text-[11px] text-muted-foreground">
+                এখানে আপনার শপের ক্যাটাগরি, রিটার্ন পলিসি, ডেলিভারি বা ওয়ারেন্টির স্পেশাল নিয়ম বাংলায় লিখে দিতে পারেন। AI স্বয়ংক্রিয়ভাবে এটি ফলো করবে।
+              </p>
             </div>
 
             <div className="flex items-center justify-between gap-4 rounded-md border border-border p-3">
