@@ -431,6 +431,7 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
               {accountRole ? (
                 (() => {
                   const meta = ROLE_CHIP[accountRole];
+                  if (!meta) return null;
                   const Icon = meta.icon;
                   return (
                     <span

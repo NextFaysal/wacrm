@@ -1,84 +1,122 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useSyncExternalStore } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { Conversation } from "@/types";
+import type { RealtimeChannel } from "@supabase/supabase-js";
 
 /**
- * Count of conversations with at least one unread inbound message for
- * the current user. Used by the sidebar to surface a green dot on the
- * Inbox nav entry when the user is elsewhere in the app.
+ * Shared singleton store for total unread conversations count.
  *
- * Lives on its own realtime channel (distinct from the inbox page's
- * "inbox-realtime") so both can coexist without sharing state.
+ * Why singleton store:
+ * Both Sidebar and BottomNav (and any other chrome component) need the
+ * unread count simultaneously. Multiple instances of useTotalUnread()
+ * subscribing to the same hardcoded Supabase channel causes
+ * `cannot add postgres_changes callbacks after subscribe()` errors.
+ * Using useSyncExternalStore ensures:
+ *   1. Exactly ONE Supabase Realtime channel is maintained.
+ *   2. Zero duplicate network requests or WebSocket subscriptions.
+ *   3. All UI components stay in sync with zero latency.
  */
-export function useTotalUnread(): number {
-  const [total, setTotal] = useState(0);
 
-  // Keep a live local mirror of {id: unread_count} so INSERT/UPDATE/DELETE
-  // events can adjust the total in O(1) without refetching.
-  const countsRef = useRef<Map<string, number>>(new Map());
+let currentTotal = 0;
+const counts = new Map<string, number>();
+const listeners = new Set<() => void>();
+let channel: RealtimeChannel | null = null;
+let pollTimer: ReturnType<typeof setInterval> | null = null;
 
-  useEffect(() => {
+function notifyListeners() {
+  listeners.forEach((listener) => listener());
+}
+
+async function fetchTotal() {
+  try {
     const supabase = createClient();
-    let cancelled = false;
+    const { data, error } = await supabase
+      .from("conversations")
+      .select("id, unread_count");
+    if (error || !data) return;
 
-    // Initial load. RLS scopes this to the signed-in user automatically —
-    // no explicit user_id filter needed here.
-    const fetchTotal = async () => {
-      const { data, error } = await supabase
-        .from("conversations")
-        .select("id, unread_count");
-      if (cancelled || error || !data) return;
+    counts.clear();
+    let sum = 0;
+    for (const row of data as { id: string; unread_count: number }[]) {
+      const n = row.unread_count ?? 0;
+      counts.set(row.id, n);
+      if (n > 0) sum += 1;
+    }
+    currentTotal = sum;
+    notifyListeners();
+  } catch (err) {
+    console.warn("[useTotalUnread] fetchTotal error:", err);
+  }
+}
 
-      const map = new Map<string, number>();
-      let sum = 0;
-      for (const row of data as { id: string; unread_count: number }[]) {
-        const n = row.unread_count ?? 0;
-        map.set(row.id, n);
-        if (n > 0) sum += 1;
+function startSubscription() {
+  if (channel) return;
+
+  const supabase = createClient();
+  void fetchTotal();
+
+  pollTimer = setInterval(() => {
+    if (typeof document !== "undefined" && document.visibilityState === "visible") {
+      void fetchTotal();
+    }
+  }, 10000);
+
+  const channelName = `total-unread-${Math.random().toString(36).slice(2, 8)}`;
+  channel = supabase
+    .channel(channelName)
+    .on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "conversations" },
+      (payload) => {
+        if (payload.eventType === "DELETE") {
+          const oldRow = payload.old as Partial<Conversation>;
+          if (oldRow.id) counts.delete(oldRow.id);
+        } else {
+          const row = payload.new as Conversation;
+          counts.set(row.id, row.unread_count ?? 0);
+        }
+        let sum = 0;
+        for (const n of counts.values()) if (n > 0) sum += 1;
+        currentTotal = sum;
+        notifyListeners();
       }
-      countsRef.current = map;
-      setTotal(sum);
-    };
+    )
+    .subscribe();
+}
 
-    fetchTotal();
+function stopSubscription() {
+  if (channel) {
+    const supabase = createClient();
+    supabase.removeChannel(channel);
+    channel = null;
+  }
+  if (pollTimer) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
+}
 
-    // Fallback interval to keep unread badges updated if WebSocket is disconnected
-    const pollTimer = setInterval(() => {
-      if (typeof document !== "undefined" && document.visibilityState === "visible") {
-        fetchTotal();
-      }
-    }, 10000);
+function subscribe(callback: () => void) {
+  listeners.add(callback);
+  if (listeners.size === 1) {
+    startSubscription();
+  }
+  return () => {
+    listeners.delete(callback);
+    if (listeners.size === 0) {
+      stopSubscription();
+    }
+  };
+}
 
-    const channel = supabase
-      .channel("total-unread-realtime")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "conversations" },
-        (payload) => {
-          const map = countsRef.current;
-          if (payload.eventType === "DELETE") {
-            const oldRow = payload.old as Partial<Conversation>;
-            if (oldRow.id) map.delete(oldRow.id);
-          } else {
-            const row = payload.new as Conversation;
-            map.set(row.id, row.unread_count ?? 0);
-          }
-          // Recompute — cheap, conversations per user stay small.
-          let sum = 0;
-          for (const n of map.values()) if (n > 0) sum += 1;
-          setTotal(sum);
-        },
-      )
-      .subscribe();
+function getSnapshot() {
+  return currentTotal;
+}
 
-    return () => {
-      cancelled = true;
-      clearInterval(pollTimer);
-      supabase.removeChannel(channel);
-    };
-  }, []);
+const serverSnapshot = () => 0;
 
-  return total;
+export function useTotalUnread(): number {
+  return useSyncExternalStore(subscribe, getSnapshot, serverSnapshot);
 }

@@ -80,6 +80,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
   const setThemeMode = useCallback((mode: "light" | "dark") => {
     document.documentElement.dataset.mode = mode;
     try {
+      localStorage.setItem("wacrm.mode", mode);
       localStorage.setItem("wacrm:theme:mode", mode);
     } catch {}
     onOpenChange(false);
@@ -88,6 +89,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
   const setThemeAccent = useCallback((accent: string) => {
     document.documentElement.dataset.theme = accent;
     try {
+      localStorage.setItem("wacrm.theme", accent);
       localStorage.setItem("wacrm:theme:accent", accent);
     } catch {}
     onOpenChange(false);
