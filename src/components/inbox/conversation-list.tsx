@@ -412,7 +412,7 @@ export function ConversationList({
             <p className="text-sm text-muted-foreground">{t("noConversations")}</p>
           </div>
         ) : (
-          <div className="flex flex-col">
+          <div className="flex flex-col pb-20 lg:pb-2">
             {filtered.map((conv) => (
               <ConversationItem
                 key={conv.id}

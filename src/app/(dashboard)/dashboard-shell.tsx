@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import { useTranslations } from "next-intl";
+import { cn } from "@/lib/utils";
 import { AuthProvider, useAuth } from "@/hooks/use-auth";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Header } from "@/components/layout/header";
@@ -47,10 +48,13 @@ function DashboardShellInner({ children }: { children: React.ReactNode }) {
     );
   }
 
+  const pathname = usePathname();
+  const isInbox = pathname?.startsWith("/inbox");
+
   if (!user) return null;
 
   return (
-    <div className="flex h-screen overflow-hidden bg-background">
+    <div className="flex h-screen h-[100dvh] overflow-hidden bg-background">
       {/* Reports this tab's online/away presence once we know a user is
           signed in. Headless — renders nothing. */}
       <PresenceHeartbeat />
@@ -71,8 +75,15 @@ function DashboardShellInner({ children }: { children: React.ReactNode }) {
           onOpenSidebar={() => setSidebarOpen(true)}
           onOpenCommandPalette={() => setCommandPaletteOpen(true)}
         />
-        {/* Responsive padding: extra bottom space on mobile for BottomNav */}
-        <main className="flex-1 overflow-y-auto p-3.5 pb-20 sm:p-6 lg:pb-6">
+        {/* Responsive padding: inbox gets full viewport edge-to-edge; other pages get standard padding & BottomNav gap */}
+        <main
+          className={cn(
+            "flex-1 flex flex-col",
+            isInbox
+              ? "overflow-hidden p-0 pb-0"
+              : "overflow-y-auto p-3.5 pb-20 sm:p-6 lg:pb-6"
+          )}
+        >
           {/* Above every page: writes are being rejected and here's why.
               Renders nothing unless the account/role failed to resolve. */}
           <AccountAccessAlert />

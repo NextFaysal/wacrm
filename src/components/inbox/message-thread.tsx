@@ -32,6 +32,7 @@ import {
   Sparkles,
   Copy,
   StickyNote,
+  MoreVertical,
 } from "lucide-react";
 import { format, isToday, isYesterday, differenceInHours } from "date-fns";
 import { useTranslations } from "next-intl";
@@ -267,6 +268,23 @@ export function MessageThread({
     }, 700);
   }, [isRefreshing, onRefresh]);
   const [replyTo, setReplyTo] = useState<ReplyDraft | null>(null);
+  const [showScrollBottom, setShowScrollBottom] = useState(false);
+
+  const handleScroll = useCallback(() => {
+    if (!scrollRef.current) return;
+    const { scrollTop, scrollHeight, clientHeight } = scrollRef.current;
+    const distanceToBottom = scrollHeight - scrollTop - clientHeight;
+    setShowScrollBottom(distanceToBottom > 120);
+  }, []);
+
+  const scrollToBottom = useCallback(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTo({
+        top: scrollRef.current.scrollHeight,
+        behavior: "smooth",
+      });
+    }
+  }, []);
   // Which attachment the media viewer is showing. Lives here rather than in
   // the bubble so the viewer can page through every image/video in the
   // thread (issue #373). Paired with the conversation it belongs to and read
@@ -1039,21 +1057,131 @@ export function MessageThread({
           </Badge>
         </div>
 
-        <div className="flex items-center gap-1.5 sm:gap-2">
-          {/* Mobile contact sheet trigger button */}
-          {onOpenMobileContact && (
+        <div className="flex items-center gap-1 sm:gap-2">
+          {/* AI Conversation Briefing Button */}
+          <button
+            type="button"
+            onClick={handleGenerateSummary}
+            disabled={summarizing}
+            title="AI Conversation Briefing"
+            aria-label="AI Conversation Briefing"
+            className="inline-flex h-8 sm:h-7 items-center justify-center gap-1 rounded-md px-2 text-xs font-medium text-primary hover:bg-primary/10 transition-colors disabled:opacity-60"
+          >
+            <Sparkles className={cn("h-4 w-4 sm:h-3.5 sm:w-3.5", summarizing && "animate-spin text-amber-500")} />
+            <span className="hidden sm:inline">AI Summary</span>
+          </button>
+
+          {/* Desktop-only: Refresh button */}
+          {onRefresh && (
             <button
               type="button"
-              onClick={onOpenMobileContact}
-              title="Customer profile"
-              aria-label="Customer profile"
-              className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-95 lg:hidden"
+              onClick={handleRefreshClick}
+              disabled={isRefreshing}
+              aria-label={t("refreshConversation")}
+              title={t("refresh")}
+              className="hidden sm:inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-60"
             >
-              <User className="h-4 w-4" />
+              <RefreshCw
+                className={cn("h-3.5 w-3.5", isRefreshing && "animate-spin")}
+              />
             </button>
           )}
 
-          {/* Contact-panel toggle — desktop only */}
+          {/* Desktop-only: Status dropdown */}
+          <div className="hidden sm:block">
+            <DropdownMenu>
+              <DropdownMenuTrigger className={cn(
+                    "inline-flex items-center justify-center h-7 gap-1 px-2 text-xs rounded-md hover:bg-muted",
+                    currentStatus?.color ?? "text-muted-foreground"
+                  )}>
+                  {currentStatus ? t(`status${currentStatus.label}`) : t("status")}
+                  <ChevronDown className="h-3 w-3" />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="end"
+                className="border-border bg-popover"
+              >
+                {STATUS_OPTIONS.map((opt) => (
+                  <DropdownMenuItem
+                    key={opt.value}
+                    onClick={() => handleStatusChange(opt.value)}
+                    className={cn("text-sm", opt.color)}
+                  >
+                    {t(`status${opt.label}`)}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+
+          {/* Desktop-only: Assign dropdown */}
+          <div className="hidden sm:block">
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                className={cn(
+                  "inline-flex items-center justify-center h-7 gap-1 px-2 text-xs rounded-md hover:bg-muted",
+                  assignedAgentId ? "text-primary" : "text-muted-foreground"
+                )}
+              >
+                <UserPlus className="h-3 w-3" />
+                <span>{assignLabel}</span>
+                <ChevronDown className="h-3 w-3" />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="end"
+                className="border-border bg-popover"
+              >
+                {profiles.length === 0 ? (
+                  <DropdownMenuItem disabled className="text-sm text-muted-foreground">
+                    {t("noTeammates")}
+                  </DropdownMenuItem>
+                ) : (
+                  profiles.map((p) => {
+                    const isSelected = p.user_id === assignedAgentId;
+                    const presence = getPresence(p.user_id);
+                    return (
+                      <DropdownMenuItem
+                        key={p.id}
+                        onClick={() => handleAssignChange(p.user_id)}
+                        className={cn(
+                          "text-sm",
+                          isSelected ? "text-primary" : "text-popover-foreground"
+                        )}
+                      >
+                        <PresenceDot
+                          status={presence}
+                          label={presenceLabel(
+                            presence,
+                            getRow(p.user_id)?.last_seen_at ?? null,
+                            now
+                          )}
+                          className="mr-2"
+                        />
+                        <span className="flex-1">
+                          {p.full_name}
+                          {p.user_id === user?.id ? t("me") : ""}
+                        </span>
+                        {isSelected && <Check className="ml-2 h-3 w-3" />}
+                      </DropdownMenuItem>
+                    );
+                  })
+                )}
+                {assignedAgentId && (
+                  <>
+                    <DropdownMenuSeparator className="bg-border" />
+                    <DropdownMenuItem
+                      onClick={() => handleAssignChange(null)}
+                      className="text-sm text-muted-foreground"
+                    >
+                      {t("unassign")}
+                    </DropdownMenuItem>
+                  </>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+
+          {/* Desktop-only: Contact-panel toggle */}
           {onToggleContactPanel && (
             <button
               type="button"
@@ -1076,135 +1204,85 @@ export function MessageThread({
             </button>
           )}
 
-          {/* Manual refresh — forces a refetch of the messages + the
-              conversation list (the parent bumps its resyncToken). Useful
-              when realtime missed an event or the agent just wants to be
-              sure nothing's stale. Only rendered when the parent wires
-              up `onRefresh`. */}
-          {onRefresh && (
-            <button
-              type="button"
-              onClick={handleRefreshClick}
-              disabled={isRefreshing}
-              aria-label={t("refreshConversation")}
-              title={t("refresh")}
-              className={cn(
-                "inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-60",
-              )}
-            >
-              <RefreshCw
-                className={cn("h-3.5 w-3.5", isRefreshing && "animate-spin")}
-              />
-            </button>
-          )}
-
-          {/* AI Conversation Briefing Button */}
-          <button
-            type="button"
-            onClick={handleGenerateSummary}
-            disabled={summarizing}
-            title="AI Conversation Briefing"
-            aria-label="AI Conversation Briefing"
-            className="inline-flex h-7 items-center gap-1 rounded-md px-2 text-xs font-medium text-primary hover:bg-primary/10 transition-colors disabled:opacity-60"
-          >
-            <Sparkles className={cn("h-3.5 w-3.5", summarizing && "animate-spin text-amber-500")} />
-            <span className="hidden sm:inline">AI Summary</span>
-          </button>
-
-          {/* Status dropdown */}
-          <DropdownMenu>
-            <DropdownMenuTrigger className={cn(
-                  "inline-flex items-center justify-center h-7 gap-1 px-2 text-xs rounded-md hover:bg-muted",
-                  currentStatus?.color ?? "text-muted-foreground"
-                )}>
-                {currentStatus ? t(`status${currentStatus.label}`) : t("status")}
-                <ChevronDown className="h-3 w-3" />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent
-              align="end"
-              className="border-border bg-popover"
-            >
-              {STATUS_OPTIONS.map((opt) => (
-                <DropdownMenuItem
-                  key={opt.value}
-                  onClick={() => handleStatusChange(opt.value)}
-                  className={cn("text-sm", opt.color)}
-                >
-                  {t(`status${opt.label}`)}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-
-          {/* Assign dropdown */}
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              className={cn(
-                "inline-flex items-center justify-center h-7 gap-1 px-2 text-xs rounded-md hover:bg-muted",
-                assignedAgentId ? "text-primary" : "text-muted-foreground"
-              )}
-            >
-              <UserPlus className="h-3 w-3" />
-              <span className="hidden sm:inline">{assignLabel}</span>
-              <ChevronDown className="h-3 w-3" />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent
-              align="end"
-              className="border-border bg-popover"
-            >
-              {profiles.length === 0 ? (
-                <DropdownMenuItem disabled className="text-sm text-muted-foreground">
-                  {t("noTeammates")}
-                </DropdownMenuItem>
-              ) : (
-                profiles.map((p) => {
-                  const isSelected = p.user_id === assignedAgentId;
-                  const presence = getPresence(p.user_id);
-                  return (
-                    <DropdownMenuItem
-                      key={p.id}
-                      onClick={() => handleAssignChange(p.user_id)}
-                      className={cn(
-                        "text-sm",
-                        isSelected ? "text-primary" : "text-popover-foreground"
-                      )}
-                    >
-                      <PresenceDot
-                        status={presence}
-                        label={presenceLabel(
-                          presence,
-                          getRow(p.user_id)?.last_seen_at ?? null,
-                          now
-                        )}
-                        className="mr-2"
-                      />
-                      <span className="flex-1">
-                        {p.full_name}
-                        {p.user_id === user?.id ? t("me") : ""}
-                      </span>
-                      {isSelected && <Check className="ml-2 h-3 w-3" />}
-                    </DropdownMenuItem>
-                  );
-                })
-              )}
-              {assignedAgentId && (
-                <>
-                  <DropdownMenuSeparator className="bg-border" />
-                  <DropdownMenuItem
-                    onClick={() => handleAssignChange(null)}
-                    className="text-sm text-muted-foreground"
-                  >
-                    {t("unassign")}
+          {/* Mobile-only: Clean consolidated 3-dot dropdown menu */}
+          <div className="sm:hidden">
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-95"
+                aria-label="More actions"
+              >
+                <MoreVertical className="h-4 w-4" />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-52 border-border bg-popover">
+                {onOpenMobileContact && (
+                  <DropdownMenuItem onClick={onOpenMobileContact} className="gap-2">
+                    <User className="h-4 w-4 text-primary" />
+                    <span>Customer 360° Profile</span>
                   </DropdownMenuItem>
-                </>
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
+                )}
+                {onRefresh && (
+                  <DropdownMenuItem onClick={handleRefreshClick} className="gap-2">
+                    <RefreshCw className={cn("h-4 w-4", isRefreshing && "animate-spin")} />
+                    <span>Refresh Chat</span>
+                  </DropdownMenuItem>
+                )}
+                <DropdownMenuSeparator className="bg-border" />
+                <div className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  Status: {currentStatus?.label}
+                </div>
+                {STATUS_OPTIONS.map((opt) => (
+                  <DropdownMenuItem
+                    key={opt.value}
+                    onClick={() => handleStatusChange(opt.value)}
+                    className={cn("gap-2 text-xs", opt.color)}
+                  >
+                    <span className={cn("h-2 w-2 rounded-full", opt.value === conversation.status ? "bg-primary ring-2 ring-primary/30" : "bg-muted-foreground/40")} />
+                    {t(`status${opt.label}`)}
+                    {opt.value === conversation.status && <Check className="ml-auto h-3 w-3" />}
+                  </DropdownMenuItem>
+                ))}
+                {profiles.length > 0 && (
+                  <>
+                    <DropdownMenuSeparator className="bg-border" />
+                    <div className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      Assign: {assignLabel}
+                    </div>
+                    {profiles.map((p) => {
+                      const isSelected = p.user_id === assignedAgentId;
+                      return (
+                        <DropdownMenuItem
+                          key={p.id}
+                          onClick={() => handleAssignChange(p.user_id)}
+                          className={cn("gap-2 text-xs", isSelected && "text-primary font-semibold")}
+                        >
+                          <span className="truncate">{p.full_name}</span>
+                          {isSelected && <Check className="ml-auto h-3 w-3" />}
+                        </DropdownMenuItem>
+                      );
+                    })}
+                    {assignedAgentId && (
+                      <DropdownMenuItem
+                        onClick={() => handleAssignChange(null)}
+                        className="text-xs text-muted-foreground"
+                      >
+                        {t("unassign")}
+                      </DropdownMenuItem>
+                    )}
+                  </>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </div>
       </div>
 
-      {/* Messages Area */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-4">
+      {/* Messages Area with Scroll listener and Floating Scroll-to-bottom button */}
+      <div className="relative flex-1 min-h-0 overflow-hidden flex flex-col">
+        <div
+          ref={scrollRef}
+          onScroll={handleScroll}
+          className="flex-1 overflow-y-auto px-3 sm:px-4 py-3 sm:py-4"
+        >
         {loading ? (
           <div className="flex items-center justify-center py-12">
             <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
@@ -1277,6 +1355,19 @@ export function MessageThread({
               </div>
             ))}
           </div>
+        )}
+        </div>
+
+        {/* Floating Scroll to Bottom Button */}
+        {showScrollBottom && (
+          <button
+            type="button"
+            onClick={scrollToBottom}
+            aria-label="Scroll to bottom"
+            className="absolute bottom-3 right-3 sm:bottom-4 sm:right-4 z-20 flex h-9 w-9 items-center justify-center rounded-full border border-border bg-card/95 text-foreground shadow-lg backdrop-blur-sm transition-all hover:bg-muted active:scale-95 animate-in fade-in zoom-in-95 duration-200"
+          >
+            <ChevronDown className="h-4 w-4" />
+          </button>
         )}
       </div>
 
