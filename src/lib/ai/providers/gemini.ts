@@ -36,7 +36,7 @@ export async function generateGemini(args: ProviderArgs): Promise<ProviderResult
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: model || 'gemini-2.5-flash',
+        model: model || 'gemini-3.8-flash',
         messages: [
           { role: 'system', content: systemPrompt },
           ...mergeConsecutive(messages),

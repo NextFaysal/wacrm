@@ -65,7 +65,7 @@ Return ONLY a valid JSON object with this exact shape:
     const endpoint = isGemini
       ? 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions'
       : 'https://api.openai.com/v1/chat/completions';
-    const visionModel = isGemini ? 'gemini-2.5-flash' : 'gpt-4o-mini';
+    const visionModel = isGemini ? 'gemini-3.8-flash' : 'gpt-4o-mini';
 
     const requestBody: Record<string, unknown> = {
       model: visionModel,

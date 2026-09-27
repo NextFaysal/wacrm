@@ -337,7 +337,7 @@ export function AiConfig() {
                   <span className="text-[11px] text-muted-foreground">Suggested:</span>
                   {provider === 'gemini' && (
                     <>
-                      {['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro'].map((m) => (
+                      {['gemini-3.8-flash', 'gemini-3.5-flash-lite', 'gemini-3.5-flash', 'gemini-3.1-flash-lite'].map((m) => (
                         <button
                           key={m}
                           type="button"

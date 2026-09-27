@@ -42,7 +42,7 @@ export async function runLlmAgentWithTools(args: RunLlmAgentArgs): Promise<LlmAg
       endpoint: GEMINI_URL,
       providerName: 'Google Gemini',
       apiKey: config.apiKey,
-      model: config.model || 'gemini-2.5-flash',
+      model: config.model || 'gemini-3.8-flash',
       systemPrompt,
       messages,
       tools,
