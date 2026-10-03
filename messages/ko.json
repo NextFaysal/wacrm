@@ -257,7 +257,10 @@
       "transcribeAgain": "다시 변환",
       "transcribeFailed": "이 오디오를 변환할 수 없습니다",
       "transcriptLabel": "텍스트 변환",
-      "transcriptEmpty": "음성이 감지되지 않았습니다"
+      "transcriptEmpty": "음성이 감지되지 않았습니다",
+      "playAudio": "재생",
+      "pauseAudio": "일시 정지",
+      "playbackSpeed": "재생 속도"
     },
     "mediaViewer": {
       "counter": "{total}개 중 {index}번째",

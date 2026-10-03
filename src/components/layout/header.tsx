@@ -3,8 +3,12 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/hooks/use-auth";
-import { LogOut, Menu, Search, Settings as SettingsIcon, User, Volume2, VolumeX } from "lucide-react";
+import { Bell, BellOff, LogOut, Menu, Search, Settings as SettingsIcon, User, Volume2, VolumeX } from "lucide-react";
+import { toast } from "sonner";
 import { isSoundEnabled, setSoundEnabled, playSound } from "@/lib/sound/sound-fx";
+import { useBrowserNotifyPref } from "@/hooks/use-browser-notifications";
+import { writeBrowserNotifyPref } from "@/lib/notifications/browser-notify";
+import { subscribeToPush, unsubscribeFromPush } from "@/lib/notifications/push-client";
 import { useState, useEffect } from "react";
 import {
   Avatar,
@@ -77,6 +81,34 @@ export function Header({ onOpenSidebar, onOpenCommandPalette }: HeaderProps) {
     if (next) playSound("incoming");
   };
 
+  const desktopNotifyEnabled = useBrowserNotifyPref();
+  const toggleDesktopNotifications = async () => {
+    if (!desktopNotifyEnabled) {
+      if (typeof window === "undefined" || !("Notification" in window)) {
+        toast.error("Notifications not supported in this browser");
+        return;
+      }
+      try {
+        const res = await Notification.requestPermission();
+        if (res === "granted") {
+          writeBrowserNotifyPref(true);
+          void subscribeToPush();
+          playSound("incoming");
+          toast.success("Desktop & push notifications enabled!");
+        } else {
+          writeBrowserNotifyPref(false);
+          toast.error("Notifications blocked by browser settings");
+        }
+      } catch {
+        toast.error("Could not request notification permissions");
+      }
+    } else {
+      writeBrowserNotifyPref(false);
+      void unsubscribeFromPush();
+      toast.info("Desktop notifications turned off");
+    }
+  };
+
   return (
     <header className="flex h-14 shrink-0 items-center justify-between gap-3 border-b border-border/80 bg-background/95 px-3.5 backdrop-blur-md sm:px-6">
       <div className="flex min-w-0 items-center gap-2">
@@ -135,6 +167,21 @@ export function Header({ onOpenSidebar, onOpenCommandPalette }: HeaderProps) {
             <Volume2 className="h-4 w-4 text-primary" />
           ) : (
             <VolumeX className="h-4 w-4 text-muted-foreground/60" />
+          )}
+        </button>
+
+        {/* Web Push / Desktop Notification toggle */}
+        <button
+          type="button"
+          onClick={toggleDesktopNotifications}
+          aria-label={desktopNotifyEnabled ? "Disable desktop & push notifications" : "Enable desktop & push notifications"}
+          title={desktopNotifyEnabled ? "Desktop notifications: ACTIVE (Click to turn off)" : "Desktop notifications: OFF (Click to turn on)"}
+          className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-95"
+        >
+          {desktopNotifyEnabled ? (
+            <Bell className="h-4 w-4 text-primary" />
+          ) : (
+            <BellOff className="h-4 w-4 text-muted-foreground/60" />
           )}
         </button>
 

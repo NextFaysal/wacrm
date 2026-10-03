@@ -257,7 +257,10 @@
       "transcribeAgain": "Transcrever novamente",
       "transcribeFailed": "Não foi possível transcrever este áudio",
       "transcriptLabel": "Transcrição",
-      "transcriptEmpty": "Nenhuma fala detectada"
+      "transcriptEmpty": "Nenhuma fala detectada",
+      "playAudio": "Reproduzir",
+      "pauseAudio": "Pausar",
+      "playbackSpeed": "Velocidade de reprodução"
     },
     "mediaViewer": {
       "counter": "{index} de {total}",

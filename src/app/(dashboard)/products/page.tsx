@@ -47,14 +47,14 @@ import {
   Truck,
 } from 'lucide-react';
 
-const CATEGORIES = [
-  { id: 'all', label: 'All Watches' },
-  { id: 'quartz', label: 'Quartz' },
-  { id: 'chronograph', label: 'Chronograph' },
-  { id: 'automatic', label: 'Automatic' },
-  { id: 'luxury', label: 'Luxury' },
-  { id: 'sports', label: 'Sports' },
-  { id: 'smartwatch', label: 'Smartwatch' },
+const DEFAULT_CATEGORIES = [
+  { id: 'all', label: 'All Products' },
+  { id: 'general', label: 'General' },
+  { id: 'fashion', label: 'Fashion & Apparel' },
+  { id: 'electronics', label: 'Electronics & Gadgets' },
+  { id: 'cosmetics', label: 'Cosmetics & Beauty' },
+  { id: 'accessories', label: 'Bags & Accessories' },
+  { id: 'watches', label: 'Watches' },
 ];
 
 type StockFilter = 'all' | 'in_stock' | 'low_stock' | 'out_of_stock';
@@ -119,7 +119,7 @@ export default function ProductsPage() {
     sku: '',
     slug: '',
     badge_text: '',
-    category: 'quartz',
+    category: 'General',
     price: '',
     regular_price: '',
     stock_quantity: '15',
@@ -165,7 +165,7 @@ export default function ProductsPage() {
       sku: '',
       slug: '',
       badge_text: 'HOT DEAL',
-      category: 'quartz',
+      category: 'General',
       price: '',
       regular_price: '',
       stock_quantity: '15',
@@ -549,6 +549,34 @@ export default function ProductsPage() {
     setTimeout(() => setCopiedId(null), 2500);
   };
 
+  // Dynamic Categories derived from products inventory + flexible defaults
+  const dynamicCategories = useMemo(() => {
+    const list: { id: string; label: string }[] = [{ id: 'all', label: 'All Products' }];
+    const seen = new Set<string>();
+
+    // 1. Gather all categories actually present in products
+    products.forEach((p) => {
+      if (p.category && p.category.trim()) {
+        const key = p.category.trim().toLowerCase();
+        if (!seen.has(key)) {
+          seen.add(key);
+          const raw = p.category.trim();
+          const label = raw.charAt(0).toUpperCase() + raw.slice(1);
+          list.push({ id: key, label });
+        }
+      }
+    });
+
+    // 2. Add defaults if not already present
+    DEFAULT_CATEGORIES.forEach((def) => {
+      if (def.id !== 'all' && !seen.has(def.id.toLowerCase())) {
+        list.push(def);
+      }
+    });
+
+    return list;
+  }, [products]);
+
   // Filtered list
   const filteredProducts = useMemo(() => {
     return products.filter((p) => {
@@ -772,7 +800,7 @@ export default function ProductsPage() {
             <SlidersHorizontal className="h-3.5 w-3.5" /> Category:
           </span>
           <div className="flex flex-wrap gap-1.5">
-            {CATEGORIES.map((cat) => (
+            {dynamicCategories.map((cat) => (
               <button
                 key={cat.id}
                 onClick={() => setSelectedCategory(cat.id)}
@@ -1408,20 +1436,25 @@ export default function ProductsPage() {
               </div>
 
               <div className="space-y-1.5">
-                <Label htmlFor="category">Category</Label>
-                <select
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="category">Category</Label>
+                  <span className="text-[10px] text-muted-foreground">Select or type custom</span>
+                </div>
+                <Input
                   id="category"
+                  list="category-options-list"
+                  placeholder="e.g. General, Fashion, Electronics, Cosmetics, Watches..."
                   value={formData.category}
                   onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring"
-                >
-                  <option value="quartz">Quartz</option>
-                  <option value="chronograph">Chronograph</option>
-                  <option value="automatic">Automatic</option>
-                  <option value="luxury">Luxury</option>
-                  <option value="sports">Sports</option>
-                  <option value="smartwatch">Smartwatch</option>
-                </select>
+                  className="w-full"
+                />
+                <datalist id="category-options-list">
+                  {dynamicCategories
+                    .filter((c) => c.id !== 'all')
+                    .map((cat) => (
+                      <option key={cat.id} value={cat.label} />
+                    ))}
+                </datalist>
               </div>
 
               <div className="space-y-1.5">

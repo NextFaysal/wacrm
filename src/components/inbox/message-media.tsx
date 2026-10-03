@@ -1,12 +1,14 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import {
   Download,
   FileText,
   ImageOff,
   Loader2,
   Maximize2,
+  Pause,
+  Play,
   Sparkles,
   type LucideIcon,
 } from "lucide-react";
@@ -224,6 +226,13 @@ export function MediaVideoBubble({
   );
 }
 
+function formatAudioTime(seconds: number): string {
+  if (!seconds || isNaN(seconds) || !isFinite(seconds)) return "0:00";
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.floor(seconds % 60);
+  return `${mins}:${secs < 10 ? "0" : ""}${secs}`;
+}
+
 export function MediaAudioBubble({
   message,
   t,
@@ -231,10 +240,43 @@ export function MediaAudioBubble({
   message: Message;
   t: Translator;
 }) {
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [speed, setSpeed] = useState<number>(1);
+
   const { downloading, download } = useMediaDownload(message, t);
   const [transcribing, setTranscribing] = useState(false);
   const [transcript, setTranscript] = useState<string | null>(null);
   const [transcriptError, setTranscriptError] = useState<string | null>(null);
+
+  const togglePlay = useCallback(() => {
+    if (!audioRef.current) return;
+    if (isPlaying) {
+      audioRef.current.pause();
+    } else {
+      audioRef.current.play().catch(() => {});
+    }
+  }, [isPlaying]);
+
+  const cycleSpeed = useCallback(() => {
+    const speeds = [1, 1.5, 2];
+    const nextIdx = (speeds.indexOf(speed) + 1) % speeds.length;
+    const nextSpeed = speeds[nextIdx];
+    setSpeed(nextSpeed);
+    if (audioRef.current) {
+      audioRef.current.playbackRate = nextSpeed;
+    }
+  }, [speed]);
+
+  const handleSeek = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const time = parseFloat(e.target.value);
+    setCurrentTime(time);
+    if (audioRef.current) {
+      audioRef.current.currentTime = time;
+    }
+  }, []);
 
   const handleTranscribe = useCallback(async () => {
     if (transcribing) return;
@@ -261,21 +303,80 @@ export function MediaAudioBubble({
 
   return (
     <div className="flex flex-col gap-1.5">
-      <div className="flex items-center gap-2">
-        <audio src={message.media_url} controls className="max-w-60" />
-        <MediaActionButton
-          icon={Download}
-          label={t("download")}
-          onClick={download}
-          busy={downloading}
-        />
-        <MediaActionButton
-          icon={Sparkles}
-          label={transcript !== null ? t("transcribeAgain") : t("transcribe")}
-          onClick={handleTranscribe}
-          busy={transcribing}
-        />
+      <audio
+        ref={audioRef}
+        src={message.media_url}
+        preload="metadata"
+        onLoadedMetadata={(e) => setDuration(e.currentTarget.duration || 0)}
+        onDurationChange={(e) => setDuration(e.currentTarget.duration || 0)}
+        onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime || 0)}
+        onPlay={() => setIsPlaying(true)}
+        onPause={() => setIsPlaying(false)}
+        onEnded={() => {
+          setIsPlaying(false);
+          setCurrentTime(0);
+        }}
+      />
+
+      <div className="flex items-center gap-2 rounded-xl border border-border/60 bg-background/50 p-2 shadow-xs min-w-[250px] max-w-[320px] sm:max-w-sm">
+        <button
+          type="button"
+          onClick={togglePlay}
+          aria-label={isPlaying ? t("pauseAudio") : t("playAudio")}
+          title={isPlaying ? t("pauseAudio") : t("playAudio")}
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm transition-transform hover:opacity-90 active:scale-95"
+        >
+          {isPlaying ? (
+            <Pause className="h-4 w-4 fill-current" />
+          ) : (
+            <Play className="h-4 w-4 fill-current ml-0.5" />
+          )}
+        </button>
+
+        <div className="flex flex-1 flex-col justify-center min-w-0 px-1">
+          <input
+            type="range"
+            min={0}
+            max={duration || 100}
+            step="0.1"
+            value={currentTime}
+            onChange={handleSeek}
+            disabled={!duration}
+            aria-label="Audio timeline"
+            className="h-1.5 w-full cursor-pointer appearance-none rounded-lg bg-muted-foreground/30 accent-primary focus:outline-none"
+          />
+          <div className="mt-1 flex items-center justify-between text-[10px] font-medium tabular-nums text-muted-foreground">
+            <span>{formatAudioTime(currentTime)}</span>
+            <span>{formatAudioTime(duration)}</span>
+          </div>
+        </div>
+
+        <button
+          type="button"
+          onClick={cycleSpeed}
+          aria-label={t("playbackSpeed")}
+          title={`${t("playbackSpeed")}: ${speed}x`}
+          className="flex h-7 px-2 shrink-0 items-center justify-center rounded-full border border-border/60 bg-background/80 text-[11px] font-bold text-foreground shadow-xs transition-all hover:bg-muted active:scale-95"
+        >
+          {speed}×
+        </button>
+
+        <div className="flex shrink-0 items-center gap-1">
+          <MediaActionButton
+            icon={Download}
+            label={t("download")}
+            onClick={download}
+            busy={downloading}
+          />
+          <MediaActionButton
+            icon={Sparkles}
+            label={transcript !== null ? t("transcribeAgain") : t("transcribe")}
+            onClick={handleTranscribe}
+            busy={transcribing}
+          />
+        </div>
       </div>
+
       {transcript !== null && (
         <div className="max-w-72 rounded-md bg-muted/50 px-3 py-2 text-xs leading-relaxed text-foreground">
           <span className="mb-0.5 block text-[10px] font-medium uppercase tracking-wider text-muted-foreground">

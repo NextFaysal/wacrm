@@ -100,23 +100,39 @@ export function useBrowserNotifications(): void {
         labelsRef.current,
       );
 
-      try {
-        const notification = new Notification(title, {
-          body,
-          // One alert per conversation: a second message from the same
-          // customer replaces the first instead of stacking.
-          tag: msg.conversation_id,
-          icon: "/icon",
-        });
-        notification.onclick = () => {
-          window.focus();
-          router.push(conversationHref(msg.conversation_id));
-          notification.close();
-        };
-      } catch (err) {
-        // Some browsers throw from the constructor (e.g. Android Chrome
-        // requires a service worker). Non-fatal.
-        console.error("[useBrowserNotifications] failed to show:", err);
+      const showNative = () => {
+        try {
+          const notification = new Notification(title, {
+            body,
+            tag: msg.conversation_id,
+            icon: "/icon-192.png",
+          });
+          notification.onclick = () => {
+            window.focus();
+            router.push(conversationHref(msg.conversation_id));
+            notification.close();
+          };
+        } catch (err) {
+          console.error("[useBrowserNotifications] fallback notification failed:", err);
+        }
+      };
+
+      if (typeof navigator !== "undefined" && "serviceWorker" in navigator) {
+        navigator.serviceWorker.ready
+          .then((reg) => {
+            return reg.showNotification(title, {
+              body,
+              tag: msg.conversation_id,
+              icon: "/icon-192.png",
+              badge: "/icon-192.png",
+              data: { url: conversationHref(msg.conversation_id) },
+            });
+          })
+          .catch(() => {
+            showNative();
+          });
+      } else {
+        showNative();
       }
     };
 
