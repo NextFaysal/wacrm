@@ -46,7 +46,7 @@ export function AiAgentOverview({ onNavigateTab }: AiAgentOverviewProps) {
 
       if (cfgRes.ok) {
         const cData = await cfgRes.json();
-        setConfig(cData?.config || null);
+        setConfig(cData?.config || (cData?.configured ? cData : null));
       }
 
       if (actRes.ok) {

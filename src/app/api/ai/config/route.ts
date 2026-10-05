@@ -47,11 +47,15 @@ export async function GET() {
     // The keys are selected only to derive the has_* flags; neither is
     // returned to the client.
     const { api_key, embeddings_api_key, ...safe } = data
-    return NextResponse.json({
+    const safeConfig = {
       configured: true,
       has_key: !!api_key,
       has_embeddings_key: !!embeddings_api_key,
       ...safe,
+    }
+    return NextResponse.json({
+      ...safeConfig,
+      config: safeConfig,
     })
   } catch (err) {
     return toErrorResponse(err)
@@ -244,6 +248,104 @@ export async function POST(request: Request) {
     }
 
     return NextResponse.json({ success: true })
+  } catch (err) {
+    return toErrorResponse(err)
+  }
+}
+
+/**
+ * PATCH /api/ai/config  (admin+)
+ *
+ * Partially update existing AI configuration (e.g. toggling master switch
+ * `is_active`, `auto_reply_enabled`, etc.) without re-sending the full config or credentials.
+ */
+export async function PATCH(request: Request) {
+  try {
+    const { supabase, accountId, userId } = await requireRole('admin')
+
+    const limit = checkRateLimit(`ai-config:${userId}`, RATE_LIMITS.adminAction)
+    if (!limit.success) return rateLimitResponse(limit)
+
+    const body = await request.json().catch(() => null)
+    if (!body || typeof body !== 'object') return bad('Invalid request body')
+
+    const { data: existing, error: existErr } = await supabase
+      .from('ai_configs')
+      .select('id, account_id')
+      .eq('account_id', accountId)
+      .maybeSingle()
+
+    if (existErr) {
+      console.error('[ai/config PATCH] query error:', existErr)
+      return NextResponse.json({ error: existErr.message }, { status: 500 })
+    }
+
+    if (!existing) {
+      return NextResponse.json(
+        { error: 'AI is not configured yet. Complete Brain Setup first.' },
+        { status: 400 },
+      )
+    }
+
+    const updates: Record<string, unknown> = {}
+
+    if ('is_active' in body) {
+      updates.is_active = body.is_active === true
+    }
+
+    if ('auto_reply_enabled' in body) {
+      updates.auto_reply_enabled = body.auto_reply_enabled === true
+    }
+
+    if ('auto_reply_max_per_conversation' in body) {
+      let maxPer = Number(body.auto_reply_max_per_conversation)
+      if (Number.isFinite(maxPer)) {
+        updates.auto_reply_max_per_conversation = Math.min(20, Math.max(1, Math.floor(maxPer)))
+      }
+    }
+
+    if ('system_prompt' in body) {
+      updates.system_prompt =
+        typeof body.system_prompt === 'string' && body.system_prompt.trim()
+          ? body.system_prompt.trim()
+          : null
+    }
+
+    if ('handoff_agent_id' in body) {
+      const rawHandoff =
+        typeof body.handoff_agent_id === 'string' ? body.handoff_agent_id.trim() : ''
+      if (rawHandoff) {
+        const { data: member } = await supabase
+          .from('profiles')
+          .select('user_id')
+          .eq('account_id', accountId)
+          .eq('user_id', rawHandoff)
+          .maybeSingle()
+        if (!member) return bad('handoff_agent_id must be a member of this account')
+        updates.handoff_agent_id = rawHandoff
+      } else {
+        updates.handoff_agent_id = null
+      }
+    }
+
+    if (Object.keys(updates).length === 0) {
+      return bad('No valid fields to update')
+    }
+
+    const { error: upErr } = await supabase
+      .from('ai_configs')
+      .update(updates)
+      .eq('account_id', accountId)
+
+    if (upErr) {
+      console.error('[ai/config PATCH] update error:', upErr)
+      return NextResponse.json(
+        { error: upErr.message || 'Failed to update AI configuration' },
+        { status: 500 },
+      )
+    }
+
+    return NextResponse.json({ success: true, ...updates })
   } catch (err) {
     return toErrorResponse(err)
   }
