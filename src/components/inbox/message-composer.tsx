@@ -26,7 +26,7 @@ import {
   Zap,
   CreditCard,
   Truck,
-  Watch,
+  Package,
   Award,
   ShieldCheck,
   Gift,
@@ -381,7 +381,7 @@ export function MessageComposer({
         title: "Product Showcase Card",
         command: "showcase",
         subtitle: "Send interactive watch/product card with image",
-        icon: Watch,
+        icon: Package,
         action: () => {
           setText((prev) => prev.replace(/(?:^|\s)\/[a-zA-Z0-9_-]*$/, ""));
           setWatchShowcaseOpen(true);
@@ -1001,8 +1001,8 @@ export function MessageComposer({
                 Book Courier Delivery (কুরিয়ার পার্সেল)
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => setWatchShowcaseOpen(true)}>
-                <Watch className="mr-2 h-4 w-4 text-primary" />
-                Watch Showcase (ঘড়ি ক্যাটালগ ও স্পেক্স)
+                <Package className="mr-2 h-4 w-4 text-primary" />
+                Product Showcase (পণ্য ক্যাটালগ ও স্পেক্স)
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => setWarrantyOpen(true)}>
                 <Award className="mr-2 h-4 w-4 text-emerald-500" />
@@ -1140,6 +1140,7 @@ export function MessageComposer({
       <PaymentRequestDialog
         open={paymentRequestOpen}
         onOpenChange={setPaymentRequestOpen}
+        conversationId={conversationId}
         onSend={(formattedText) => onSend(formattedText, replyTo?.id)}
         onInsertToComposer={(formattedText) => {
           setText((prev) => (prev ? `${prev}\n\n${formattedText}` : formattedText));
@@ -1159,6 +1160,7 @@ export function MessageComposer({
       <WatchShowcaseDialog
         open={watchShowcaseOpen}
         onOpenChange={setWatchShowcaseOpen}
+        conversationId={conversationId}
         onSendMessage={(formattedText) => onSend(formattedText, replyTo?.id)}
       />
 

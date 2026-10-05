@@ -49,11 +49,13 @@ import {
   SlidersHorizontal,
   Filter,
   X,
+  Sparkles,
 } from 'lucide-react';
 import { ContactForm } from '@/components/contacts/contact-form';
 import { ContactDetailView } from '@/components/contacts/contact-detail-view';
 import { ImportModal } from '@/components/contacts/import-modal';
 import { CustomFieldsManager } from '@/components/contacts/custom-fields-manager';
+import { CustomerJourneyModal } from '@/components/growth/customer-journey-modal';
 import { useCan } from '@/hooks/use-can';
 import { GatedButton } from '@/components/ui/gated-button';
 import { useTranslations } from 'next-intl';
@@ -84,6 +86,8 @@ export default function ContactsPage() {
   const [editContactTags, setEditContactTags] = useState<ContactTag[]>([]);
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailContactId, setDetailContactId] = useState<string | null>(null);
+  const [journeyOpen, setJourneyOpen] = useState(false);
+  const [journeyContact, setJourneyContact] = useState<Contact | null>(null);
   const [importOpen, setImportOpen] = useState(false);
   const [customFieldsOpen, setCustomFieldsOpen] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
@@ -665,6 +669,17 @@ export default function ContactsPage() {
                         <DropdownMenuItem
                           onClick={(e) => {
                             e.stopPropagation();
+                            setJourneyContact(contact);
+                            setJourneyOpen(true);
+                          }}
+                          className="text-popover-foreground focus:bg-muted focus:text-foreground cursor-pointer"
+                        >
+                          <Sparkles className="size-4 text-indigo-500" />
+                          Customer Journey
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={(e) => {
+                            e.stopPropagation();
                             openEditForm(contact);
                           }}
                           className="text-popover-foreground focus:bg-muted focus:text-foreground"
@@ -827,6 +842,18 @@ export default function ContactsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Customer Journey Modal */}
+      <CustomerJourneyModal
+        isOpen={journeyOpen}
+        onClose={() => {
+          setJourneyOpen(false);
+          setJourneyContact(null);
+        }}
+        contactId={journeyContact?.id ?? null}
+        contactName={journeyContact?.name}
+        contactPhone={journeyContact?.phone}
+      />
     </div>
   );
 }

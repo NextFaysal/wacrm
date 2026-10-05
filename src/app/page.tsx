@@ -1,5 +1,5 @@
-import { redirect } from 'next/navigation'
+import { StorefrontView } from '@/components/store/storefront-view';
 
 export default function RootPage() {
-  redirect('/dashboard')
+  return <StorefrontView />;
 }

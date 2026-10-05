@@ -93,7 +93,7 @@ export async function runAbandonedCartRecovery(
       continue;
     }
 
-    const customerName = memory?.customer_name ? ` ${memory.customer_name}` : ' ভাইয়া';
+    const customerName = memory?.customer_name ? ` ${memory.customer_name}` : '';
     const productName = memory?.interested_product_name ? ` (${memory.interested_product_name})` : '';
 
     let recoveryMsg = '';
@@ -102,18 +102,18 @@ export async function runAbandonedCartRecovery(
       // Follow-up 1: Gentle check-in on color & questions
       recoveryMsg =
         `আসসালামু আলাইকুম${customerName}! 😊\n\n` +
-        `আপনি আমাদের${productName} ঘড়িটি সম্পর্কে জানতে চেয়েছিলেন। স্টক খুব সীমিত রয়েছে। আপনি কি পছন্দের কালারটি কনফার্ম করতে চান? ডেলিভারি সংক্রান্ত যেকোনো তথ্যের জন্য জানাতে পারেন! ✨`;
+        `আপনি আমাদের${productName} পণ্যটি সম্পর্কে জানতে চেয়েছিলেন। স্টক খুব সীমিত রয়েছে। আপনি কি পছন্দের ভ্যারিয়েন্ট/কালারটি কনফার্ম করতে চান? ডেলিভারি সংক্রান্ত যেকোনো তথ্যের জন্য জানাতে পারেন! ✨`;
     } else if (currentCount === 1) {
       // Follow-up 2: Free Delivery & Bonus Battery incentive (~24h)
       recoveryMsg =
         `আসসালামু আলাইকুম${customerName}! 😊\n\n` +
-        `আপনার পছন্দের ঘড়িটির${productName} জন্য একটি স্পেশাল অফার রয়েছে—আজ কনফার্ম করলে ডেলিভারি চার্জ সম্পূর্ণ ফ্রি করে দেওয়া যাবে এবং সাথে ১টি অতিরিক্ত ফ্রি ব্যাটারি পাবেন! 🎁\n\n` +
-        `অর্ডারটি কনফার্ম করতে চাইলে আপনার সম্পূর্ণ ঠিকানা ও মোবাইল নাম্বারটি পাঠিয়ে দিন। সাথে থাকার জন্য ধন্যবাদ! ⌚`;
+        `আপনার পছন্দের পণ্যটির${productName} জন্য একটি স্পেশাল অফার রয়েছে—আজ কনফার্ম করলে ডেলিভারি চার্জ সম্পূর্ণ ফ্রি করে দেওয়া যাবে এবং সাথে স্পেশাল গিফট পাবেন! 🎁\n\n` +
+        `অর্ডারটি কনফার্ম করতে চাইলে আপনার সম্পূর্ণ ঠিকানা ও মোবাইল নাম্বারটি পাঠিয়ে দিন। সাথে থাকার জন্য ধন্যবাদ! 🛍️`;
     } else {
       // Follow-up 3: Final courtesy check before releasing booking (~48h-60h)
       recoveryMsg =
         `আসসালামু আলাইকুম${customerName}! 😊\n\n` +
-        `আপনার পছন্দের ঘড়িটির${productName} স্টক প্রায় শেষ পর্যায়ে চলে এসেছে। আমরা কি পার্সেলটি পাঠিয়ে দিব নাকি বুকিংটি বাতিল করে দিব জানাবেন কি? আপনার সুবিধার জন্য ক্যাশ অন ডেলিভারিতে চেক করে নেওয়ার সুযোগ রয়েছে। ভালো থাকবেন! ❤️`;
+        `আপনার পছন্দের পণ্যটির${productName} স্টক প্রায় শেষ পর্যায়ে চলে এসেছে। আমরা কি পার্সেলটি পাঠিয়ে দিব নাকি বুকিংটি বাতিল করে দিব জানাবেন কি? আপনার সুবিধার জন্য ক্যাশ অন ডেলিভারিতে চেক করে নেওয়ার সুযোগ রয়েছে। ভালো থাকবেন! ❤️`;
     }
 
     try {

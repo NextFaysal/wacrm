@@ -7,6 +7,7 @@ import { generateReply } from '@/lib/ai/generate'
 import { buildSystemPrompt } from '@/lib/ai/defaults'
 import { latestUserMessage } from '@/lib/ai/query'
 import { AiError, type ChatMessage } from '@/lib/ai/types'
+import { loadBusinessContext } from '@/lib/ai/business-context'
 
 // Keep the tested transcript bounded, mirroring the live context window.
 const MAX_TURNS = 20
@@ -72,14 +73,29 @@ export async function POST(request: Request) {
       )
     }
 
-    const knowledge = await retrieveKnowledge(
-      supabase,
-      accountId,
-      config,
-      latestUserMessage(messages),
-    )
+    const [knowledge, bizCtx] = await Promise.all([
+      retrieveKnowledge(
+        supabase,
+        accountId,
+        config,
+        latestUserMessage(messages),
+      ),
+      loadBusinessContext(accountId, supabase),
+    ])
+
+    const businessPrompt = config.systemPrompt?.trim()
+      ? config.systemPrompt
+      : `You are the friendly WhatsApp sales executive for "${bizCtx.storeName}", a premier online store in Bangladesh.
+Store Policies:
+- Product Niche: ${bizCtx.businessTypeLabel}
+- Delivery: Inside Dhaka ${bizCtx.deliveryInsideDhaka} (৳${bizCtx.insideDhakaCharge}), Outside Dhaka ${bizCtx.deliveryOutsideDhaka} (৳${bizCtx.outsideDhakaCharge}).
+- Free Delivery: ${bizCtx.freeDeliveryGlobal ? 'Currently free delivery across all orders' : `${bizCtx.freeDeliveryMinQty} or more items get free delivery`}.
+- Warranty & Return: ${bizCtx.warrantyPolicy}.
+- Cash on Delivery available nationwide with open-box verification before payment.
+Always respond in warm, natural, polite Bengali (use "জি ভাইয়া/আপু", "অবশ্যই", "ধন্যবাদ"). Keep answers short and WhatsApp-friendly.`
+
     const systemPrompt = buildSystemPrompt({
-      userPrompt: config.systemPrompt,
+      userPrompt: businessPrompt,
       mode: 'auto_reply',
       knowledge,
     })

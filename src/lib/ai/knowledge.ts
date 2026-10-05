@@ -145,5 +145,29 @@ export async function retrieveKnowledge(
     }
   }
 
+  // Fallback: If no exact matches were found (e.g. conversational Banglish,
+  // dialect phrases, or broad queries without verbatim keywords), retrieve the
+  // account's available knowledge chunks so the AI assistant has real product/policy
+  // context instead of forcing an immediate human handoff.
+  if (picked.size === 0) {
+    try {
+      const { data: fallbackRows, error: fallbackErr } = await db
+        .from('ai_knowledge_chunks')
+        .select('id, content')
+        .eq('account_id', accountId)
+        .order('created_at', { ascending: false })
+        .limit(k)
+
+      if (!fallbackErr && Array.isArray(fallbackRows)) {
+        for (const row of fallbackRows as MatchRow[]) {
+          if (picked.size >= k) break
+          picked.set(row.id, row.content)
+        }
+      }
+    } catch (err) {
+      console.error('[ai knowledge] fallback retrieval failed:', err)
+    }
+  }
+
   return Array.from(picked.values()).slice(0, k)
 }

@@ -11,7 +11,8 @@ export interface ExtractedInfo {
   quantity?: number;
   detectedIntent?: string;
   trxId?: string;
-  paymentMethod?: 'bKash' | 'Nagad' | 'Rocket';
+  paymentMethod?: 'bKash' | 'Nagad' | 'Rocket' | 'Upay';
+  paymentAmount?: number;
   invoiceNo?: string;
 }
 
@@ -126,38 +127,38 @@ export function extractCustomerEntities(text: string, existingMemory: Conversati
   }
 
   // 8. Invoice Number Extraction (e.g. "WG-1002" or "INV-1005")
-  const invoiceMatch = trimmed.match(/\b(WG-\d+|INV-\d+)\b/i);
+  const invoiceMatch = trimmed.match(/\b([A-Z]{2,4}-\d+|INV-\d+)\b/i);
   if (invoiceMatch) {
     result.invoiceNo = invoiceMatch[1].toUpperCase();
   }
 
   // 9. Intent Detection
   if (
-    /(আমার অর্ডার|অর্ডার কোথায়|অর্ডারের খবর|অর্ডার পাই নাই|order status|parcel kothay|পার্সেল কোথায়|পার্সেল কি পাঠাইছেন|কুরিয়ার কোড|ট্র্যাকিং|tracking code|কবে পাবো আমার ঘড়ি|আমার ঘড়ি কই|WG-\d+)/i.test(trimmed)
+    /(আমার অর্ডার|অর্ডার কোথায়|অর্ডারের খবর|অর্ডার পাই নাই|order status|parcel kothay|পার্সেল কোথায়|পার্সেল কি পাঠাইছেন|কুরিয়ার কোড|ট্র্যাকিং|tracking code|কবে পাবো আমার পার্সেল|আমার পার্সেল কই|আমার প্রোডাক্ট কই|INV-\d+)/i.test(trimmed)
   ) {
     result.detectedIntent = 'ORDER_STATUS_INQUIRY';
   } else if (
-    /(নষ্ট|ভাঙা|ভেঙ্গে গেছে|কাজ করে না|চলছে না|সমস্যা|ব্যাটারি শেষ|রিটার্ন|ফেরত|চেঞ্জ করতে চাই|বদল করতে চাই|অন্য কালার নিব|খারাপ ঘড়ি)/i.test(trimmed)
+    /(নষ্ট|ভাঙা|ভেঙ্গে গেছে|কাজ করে না|চলছে না|সমস্যা|ব্যাটারি শেষ|রিটার্ন|ফেরত|চেঞ্জ করতে চাই|বদল করতে চাই|অন্য কালার নিব|খারাপ প্রোডাক্ট|খারাপ কোয়ালিটি)/i.test(trimmed)
   ) {
     result.detectedIntent = 'RETURN_OR_COMPLAINT';
   } else if (
-    /(অন্য মডেল|অন্যান্য ঘড়ি|আর কি আছে|ক্যাটালগ|অন্য ডিজাইন|catalogue|ar ki model|অন্য কোনো ঘড়ি)/i.test(trimmed)
+    /(অন্য মডেল|অন্যান্য প্রোডাক্ট|অন্যান্য পণ্য|আর কি আছে|ক্যাটালগ|অন্য ডিজাইন|catalogue|ar ki model|অন্য কোনো প্রোডাক্ট)/i.test(trimmed)
   ) {
     result.detectedIntent = 'RECOMMENDATION_INQUIRY';
-  } else if (/(নিতে চাই|অর্ডার করবো|order korbo|order korte chai|order করতে চাই|একটি দেন|১টি দেন|একটা পাঠান|send me one|বুক করতে চাই)/i.test(trimmed)) {
+  } else if (/(নিতে চাই|অর্ডার করবো|order korbo|order korte chai|order করতে চাই|একটি দেন|১টি দেন|একটা পাঠান|send me one|বুক করতে চাই|কনফার্ম|confirm|অর্ডার কনফার্ম|হ্যাঁ কনফার্ম|ঠিক আছে পাঠিয়ে দেন|ঠিক আছে দেন|পাঠাই দেন)/i.test(trimmed)) {
     result.detectedIntent = 'PURCHASE_INTENT';
-  } else if (/(এখন নেব না|এখন নিব না|পরে নেব|পরে নিবো|এখন না|লাগবে না|টাকা নাই|পরে জানাব|কালকে নেব|কালকে জানাব|অন্য সময় নিব|ক্যান্সেল|বাতিল|pore nebo|ekhon na|lagbe na|ekhon nebo na|ar lagbe na|cancel|লাগবেনা)/i.test(trimmed)) {
+  } else if (/(এখন নেব না|এখন নিব না|পরে নেব|পরে নিবো|এখন না|লাগবে না|টাকা নাই|পরে জানাব|কালকে নেব|কালকে জানাব|অন্য সময় নিব|ক্যান্সেল|বাতিল|pore nebo|ekhon na|lagbe na|ekhon nebo na|ar lagbe na|cancel|লাগবেনা|বাতিল করুন|অর্ডার বাতিল)/i.test(trimmed)) {
     result.detectedIntent = 'FUTURE_PURCHASE';
   } else if (/(দাম কত|price koto|koto dam|rate koto|অফার কি)/i.test(trimmed)) {
     result.detectedIntent = 'PRICE_INQUIRY';
-  } else if (/(waterproof|পানি লাগলে|ব্যাটারি|গ্যারান্টি|ওয়ারেন্টি|warranty|material|চেইন|strap|dial)/i.test(trimmed)) {
+  } else if (/(waterproof|পানি লাগলে|ব্যাটারি|গ্যারান্টি|ওয়ারেন্টি|warranty|material|উপাদান|সাইজ|size|color)/i.test(trimmed)) {
     result.detectedIntent = 'PRODUCT_QUESTION';
   } else if (/(কথা বলতে চাই|মানুষের সাথে কথা|agent|representative|ফোন ধরুন)/i.test(trimmed)) {
     result.detectedIntent = 'HUMAN_AGENT_REQUEST';
   }
 
-  // 10. TrxID & Payment Extraction (e.g. "TrxID: 9K37XZL2" or "bKash পাঠাইছি BL92K8XZ")
-  const trxMatch = trimmed.match(/(?:trxid|trx|transaction|ট্রানজেকশন|আইডি)[:\s]*([A-Za-z0-9]{8,12})/i);
+  // 10. TrxID & Payment Extraction (e.g. "TrxID: 9K37XZL2", "bKash পাঠাইছি BL92K8XZ", "Txn ID: 71F8ABCD")
+  const trxMatch = trimmed.match(/(?:trxid|trx|txn\s*id|txid|transid|transaction|ট্রানজেকশন|আইডি|টিএক্সআইডি)[:\s-]*([A-Za-z0-9]{8,12})/i);
   if (trxMatch && trxMatch[1]) {
     result.trxId = trxMatch[1].toUpperCase();
   } else {
@@ -168,12 +169,32 @@ export function extractCustomerEntities(text: string, existingMemory: Conversati
     }
   }
 
+function parseBdDigits(str: string): string {
+  const bdDigits: Record<string, string> = {
+    '০': '0', '১': '1', '২': '2', '৩': '3', '৪': '4',
+    '৫': '5', '৬': '6', '৭': '7', '৮': '8', '৯': '9',
+  };
+  return str.replace(/[০-৯]/g, (d) => bdDigits[d] || d);
+}
+
+  // Payment Amount Extraction (supports English 200 and Bengali ২০০, e.g. "২০০ টাকা পাঠাইছি", "৳150", "150 taka", "200tk")
+  const textWithAsciiDigits = parseBdDigits(trimmed);
+  const amountMatch = textWithAsciiDigits.match(/(?:(?:৳|tk|taka|টাকা|পাঠাইছি|পাঠিয়েছি|দিসি|দিলাম)\s*(\d{2,6})|(\d{2,6})\s*(?:৳|tk|taka|টাকা))/i);
+  if (amountMatch) {
+    const val = parseInt(amountMatch[1] || amountMatch[2], 10);
+    if (!isNaN(val) && val >= 50 && val <= 50000) {
+      result.paymentAmount = val;
+    }
+  }
+
   if (/(bkash|বিকাশ)/i.test(trimmed)) {
     result.paymentMethod = 'bKash';
   } else if (/(nagad|নগদ)/i.test(trimmed)) {
     result.paymentMethod = 'Nagad';
   } else if (/(rocket|রকেট)/i.test(trimmed)) {
     result.paymentMethod = 'Rocket';
+  } else if (/(upay|উপায়|উপায়)/i.test(trimmed)) {
+    result.paymentMethod = 'Upay';
   }
 
   return result;
@@ -219,7 +240,7 @@ export function computeMissingOrderFields(memory: ConversationMemory): {
 
   // Craft polite, concise Bangla prompt for only what is missing
   let prompt: string | null = null;
-  const name = memory.customer_name ? `${memory.customer_name} ভাই` : '';
+  const name = memory.customer_name ? `${memory.customer_name}` : '';
 
   if (missing.length === 0) {
     return { collected, missing, promptForMissing: null };
@@ -232,7 +253,7 @@ export function computeMissingOrderFields(memory: ConversationMemory): {
     } else if (!missing.includes('phone') && missing.includes('name')) {
       prompt = `ধন্যবাদ। এবার আপনার নাম এবং সম্পূর্ণ ঠিকানাটি দিন (থানা এবং জেলার নামটা নিলে ভালো হয়) 😊`;
     } else if (missing.includes('variant') && !missing.includes('phone')) {
-      prompt = `আপনি কোন কালারটি (Black, Silver, Brown) নিতে চান এবং ঠিকানাটি দিন (থানা এবং জেলার নামটা নিলে ভালো হয়) 😊`;
+      prompt = `আপনি কোন ভ্যারিয়েন্ট/কালারটি নিতে চান এবং আপনার ঠিকানাটি দিন (থানা এবং জেলার নাম সহ)? 😊`;
     }
   }
 
@@ -240,7 +261,7 @@ export function computeMissingOrderFields(memory: ConversationMemory): {
   if (missing.includes('phone') || missing.includes('address')) {
     prompt = `আপনার নাম ঠিকানা মোবাইল নাম্বারটি দিন (থানা এবং জেলার নামটা নিলে ভালো হয়) 😊`;
   } else if (missing.includes('variant') && missing.length === 1) {
-    prompt = `কোন কালার ভ্যারিয়েন্টটি দিতে হবে জানালেই অর্ডার কনফার্ম করে দিচ্ছি। 😊`;
+    prompt = `কোন ভ্যারিয়েন্ট, সাইজ বা কালারটি দিতে হবে জানালেই অর্ডার কনফার্ম করে দিচ্ছি। 😊`;
   }
 
   if (!prompt) {

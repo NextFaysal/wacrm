@@ -11,7 +11,7 @@ import {
   LayoutDashboard,
   MessageSquare,
   ShoppingBag,
-  Watch,
+  Package,
   TrendingUp,
   Bell,
   Users,
@@ -126,7 +126,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
       category: "Navigation",
       title: "Products & Inventory",
       subtitle: "Product catalog, variants, and stock",
-      icon: Watch,
+      icon: Package,
       action: () => navigate("/products"),
     },
     {

@@ -27,7 +27,7 @@ export async function transcribeAudioWithWhisper(args: TranscribeAudioArgs): Pro
     if (language) {
       formData.append('language', language);
     }
-    formData.append('prompt', 'Bangladeshi customer inquiring about watch model, price, colors, or giving delivery address and phone number in Bengali.');
+    formData.append('prompt', 'Bangladeshi customer inquiring about product model, price, colors, size, variant, or giving delivery address and phone number in Bengali.');
 
     const res = await fetch('https://api.openai.com/v1/audio/transcriptions', {
       method: 'POST',

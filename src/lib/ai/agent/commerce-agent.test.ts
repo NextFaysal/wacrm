@@ -218,16 +218,18 @@ describe('AI Commerce Agent Tools', () => {
   });
 
   describe('record_advance_payment', () => {
-    it('records advance payment and recalculates COD due', async () => {
+    it('records advance payment and recalculates COD due and auto-confirms order', async () => {
       const mockOrder = {
         id: 'ord-adv-123',
         invoice_no: 'INV-ADV-999',
         total_amount: 2500,
         advance_paid: 0,
+        status: 'pending',
       };
 
       const mockQuery: any = {
         eq: vi.fn().mockReturnThis(),
+        neq: vi.fn().mockReturnThis(),
         or: vi.fn().mockReturnThis(),
         order: vi.fn().mockReturnThis(),
         limit: vi.fn().mockResolvedValue({ data: [mockOrder] }),
@@ -254,17 +256,71 @@ describe('AI Commerce Agent Tools', () => {
       expect(res.advancePaid).toBe(200);
       expect(res.trxId).toBe('BL92K8XZ');
       expect(res.codDue).toBe(2300);
+      expect(res.status).toBe('confirmed');
+    });
+
+    it('rejects duplicate TrxID already used in another order', async () => {
+      const currentOrder = {
+        id: 'ord-adv-123',
+        invoice_no: 'INV-ADV-999',
+        total_amount: 2500,
+        advance_paid: 0,
+      };
+
+      const existingOtherOrder = {
+        id: 'ord-different-456',
+        invoice_no: 'INV-PAID-001',
+      };
+
+      let callCount = 0;
+      const mockQueryOrder: any = {
+        eq: vi.fn().mockReturnThis(),
+        neq: vi.fn().mockReturnThis(),
+        or: vi.fn().mockReturnThis(),
+        order: vi.fn().mockReturnThis(),
+        limit: vi.fn().mockImplementation(() => {
+          callCount++;
+          if (callCount === 1) {
+            // First call: find order to attach advance payment
+            return Promise.resolve({ data: [currentOrder] });
+          }
+          // Second call: duplicate check query
+          return Promise.resolve({ data: [existingOtherOrder] });
+        }),
+      };
+
+      (mockContext.db.from as any).mockImplementation((table: string) => {
+        if (table === 'orders') {
+          return {
+            select: () => mockQueryOrder,
+            update: () => ({
+              eq: () => Promise.resolve({ data: null, error: null }),
+            }),
+          };
+        }
+        return {};
+      });
+
+      const res = (await AI_COMMERCE_TOOLS.record_advance_payment.handler(
+        { phone: '01712345678', amount: 200, trxId: 'BL92K8XZ', method: 'bKash' },
+        mockContext
+      )) as any;
+
+      expect(res.error).toBeDefined();
+      expect(res.error).toContain('BL92K8XZ');
+      expect(res.error).toContain('INV-PAID-001');
     });
   });
 
   describe('extractCustomerEntities with TrxID', () => {
-    it('extracts bKash TrxID from Bengali customer message', async () => {
+    it('extracts bKash TrxID and payment amount from Bengali customer message', async () => {
       const { extractCustomerEntities } = await import('./extractor');
       const text = 'ভাই আমি বিকাশ এ ২০০ টাকা পাঠাইছি TrxID: 9K37XZL2 ডেলিভারি দিয়েন';
       const extracted = extractCustomerEntities(text);
 
       expect(extracted.trxId).toBe('9K37XZL2');
       expect(extracted.paymentMethod).toBe('bKash');
+      expect(extracted.paymentAmount).toBe(200);
     });
   });
 

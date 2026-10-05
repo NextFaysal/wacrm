@@ -3,7 +3,8 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import Link from 'next/link';
 import { toast } from 'sonner';
-import type { Product, ProductVariant, ProductStockLog } from '@/types/watch';
+import type { Product, ProductVariant, ProductStockLog, ProductAttribute, ProductCategory, TierPrice } from '@/types/watch';
+import type { BusinessSettings } from '@/types/business';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -18,10 +19,30 @@ import {
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
+import { AiCopywriterDialog } from '@/components/products/ai-copywriter-dialog';
+import { CatalogAdStudioDialog } from '@/components/growth/catalog-ad-studio-dialog';
+import { BarcodeLabelModal } from '@/components/products/barcode-label-modal';
+import { CsvImportModal } from '@/components/products/csv-import-modal';
+import { MetaCatalogModal } from '@/components/products/meta-catalog-modal';
+import { ProductReviewsModal } from '@/components/products/product-reviews-modal';
+import { ProductBundlesModal } from '@/components/products/product-bundles-modal';
+import { StockAuditModal } from '@/components/products/stock-audit-modal';
+import { InventoryForecastModal } from '@/components/products/inventory-forecast-modal';
+import { CameraBarcodeScannerModal } from '@/components/common/camera-barcode-scanner-modal';
+import { SupplierPoModal } from '@/components/products/supplier-po-modal';
+import { ProductFormModal } from '@/components/products/product-form-modal';
 import {
-  Watch,
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from '@/components/ui/dropdown-menu';
+import {
+  Store,
   Plus,
   Search,
+  Camera,
   Pencil,
   Trash2,
   Copy,
@@ -45,6 +66,18 @@ import {
   Image as ImageIcon,
   Tag,
   Truck,
+  Barcode as BarcodeIcon,
+  Download,
+  FileSpreadsheet,
+  Share2,
+  Printer,
+  Percent,
+  Star,
+  Layers,
+  Brain,
+  Building2,
+  ChevronDown,
+  MoreVertical,
 } from 'lucide-react';
 
 const DEFAULT_CATEGORIES = [
@@ -62,6 +95,7 @@ type ViewMode = 'grid' | 'table';
 
 export default function ProductsPage() {
   const [products, setProducts] = useState<Product[]>([]);
+  const [business, setBusiness] = useState<BusinessSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
@@ -76,76 +110,65 @@ export default function ProductsPage() {
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [previewProduct, setPreviewProduct] = useState<Product | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Quick Restock Dialog
   const [restockProduct, setRestockProduct] = useState<Product | null>(null);
   const [restockQty, setRestockQty] = useState('');
   const [isRestocking, setIsRestocking] = useState(false);
 
+  // AI Copywriter Dialog
+  const [aiCopyProduct, setAiCopyProduct] = useState<Product | null>(null);
+  const [isAiCopyOpen, setIsAiCopyOpen] = useState(false);
+  const [adStudioProduct, setAdStudioProduct] = useState<Product | null>(null);
+  const [isAdStudioOpen, setIsAdStudioOpen] = useState(false);
+
   // Stock Audit History Dialog
   const [historyProduct, setHistoryProduct] = useState<Product | null>(null);
-  const [stockLogs, setStockLogs] = useState<ProductStockLog[]>([]);
-  const [loadingLogs, setLoadingLogs] = useState(false);
 
-  // Image Upload State
-  const [isUploadingImage, setIsUploadingImage] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  // Barcode Label Modal State
+  const [barcodeProduct, setBarcodeProduct] = useState<Product | null>(null);
+  const [isBarcodeModalOpen, setIsBarcodeModalOpen] = useState(false);
 
-  // Form inputs
-  const [formData, setFormData] = useState<{
-    name: string;
-    sku: string;
-    slug: string;
-    badge_text: string;
-    category: string;
-    price: string;
-    regular_price: string;
-    stock_quantity: string;
-    low_stock_threshold: string;
-    image_url: string;
-    images: string[];
-    variants: ProductVariant[];
-    dial_size: string;
-    water_resistance: string;
-    movement: string;
-    strap_type: string;
-    colors: string;
-    warranty_months: string;
-    description: string;
-    is_active: boolean;
-  }>({
-    name: '',
-    sku: '',
-    slug: '',
-    badge_text: '',
-    category: 'General',
-    price: '',
-    regular_price: '',
-    stock_quantity: '15',
-    low_stock_threshold: '5',
-    image_url: '',
-    images: [],
-    variants: [],
-    dial_size: '42mm',
-    water_resistance: '3ATM / 30M',
-    movement: 'Japanese Quartz',
-    strap_type: 'Genuine Leather',
-    colors: 'Black, Silver',
-    warranty_months: '12',
-    description: '',
-    is_active: true,
-  });
+  // Bulk CSV Import Modal State
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+
+  // Meta Catalog Data Feed Modal State
+  const [isMetaModalOpen, setIsMetaModalOpen] = useState(false);
+
+  // Customer Reviews Modal State
+  const [reviewsProduct, setReviewsProduct] = useState<Product | null>(null);
+  const [isReviewsModalOpen, setIsReviewsModalOpen] = useState(false);
+
+  // Product Bundles & Combos Modal State
+  const [isBundlesModalOpen, setIsBundlesModalOpen] = useState(false);
+
+  // AI Inventory Demand Forecast Modal State
+  const [isForecastModalOpen, setIsForecastModalOpen] = useState(false);
+
+  // Camera Barcode Scanner Modal State
+  const [isCameraScannerOpen, setIsCameraScannerOpen] = useState(false);
+
+  // Supplier & PO Modal State
+  const [isSupplierPoModalOpen, setIsSupplierPoModalOpen] = useState(false);
 
   const fetchProducts = useCallback(async () => {
     try {
       setLoading(true);
-      const res = await fetch('/api/products?include_inactive=true');
-      const data = await res.json();
-      if (res.ok && data.products) {
+      const [prodRes, bizRes] = await Promise.all([
+        fetch('/api/products?include_inactive=true'),
+        fetch('/api/settings/business'),
+      ]);
+      const data = await prodRes.json();
+      const bizData = await bizRes.json();
+
+      if (prodRes.ok && data.products) {
         setProducts(data.products);
       } else {
         toast.error(data.error || 'Failed to fetch products');
+      }
+
+      if (bizRes.ok && bizData.settings) {
+        setBusiness(bizData.settings);
       }
     } catch {
       toast.error('Network error loading products');
@@ -160,218 +183,47 @@ export default function ProductsPage() {
 
   const openCreateDialog = () => {
     setEditingProduct(null);
-    setFormData({
-      name: '',
-      sku: '',
-      slug: '',
-      badge_text: 'HOT DEAL',
-      category: 'General',
-      price: '',
-      regular_price: '',
-      stock_quantity: '15',
-      low_stock_threshold: '5',
-      image_url: '',
-      images: [],
-      variants: [],
-      dial_size: '42mm',
-      water_resistance: '3ATM / 30M',
-      movement: 'Japanese Quartz',
-      strap_type: 'Genuine Leather',
-      colors: 'Black, Silver, Brown',
-      warranty_months: '12',
-      description: '',
-      is_active: true,
-    });
     setIsFormOpen(true);
   };
 
   const openEditDialog = (product: Product) => {
     setEditingProduct(product);
-    setFormData({
-      name: product.name,
-      sku: product.sku || '',
-      slug: product.slug || '',
-      badge_text: product.badge_text || '',
-      category: product.category || 'quartz',
-      price: String(product.price),
-      regular_price: product.regular_price ? String(product.regular_price) : '',
-      stock_quantity: String(product.stock_quantity ?? 0),
-      low_stock_threshold: String(product.low_stock_threshold ?? 5),
-      image_url: product.image_url || '',
-      images: Array.isArray(product.images) ? product.images : (product.image_url ? [product.image_url] : []),
-      variants: Array.isArray(product.variants) ? product.variants : [],
-      dial_size: product.dial_size || '42mm',
-      water_resistance: product.water_resistance || '3ATM / 30M',
-      movement: product.movement || 'Japanese Quartz',
-      strap_type: product.strap_type || 'Genuine Leather',
-      colors: Array.isArray(product.colors) ? product.colors.join(', ') : 'Black',
-      warranty_months: String(product.warranty_months || 12),
-      description: product.description || '',
-      is_active: product.is_active,
-    });
     setIsFormOpen(true);
   };
 
-  // Image Upload handler
-  const handleImageFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
-
-    try {
-      setIsUploadingImage(true);
-      for (let i = 0; i < files.length; i++) {
-        const file = files[i];
-        const body = new FormData();
-        body.append('file', file);
-
-        const res = await fetch('/api/products/upload', {
-          method: 'POST',
-          body,
-        });
-
-        const data = await res.json();
-        if (res.ok && data.url) {
-          setFormData((prev) => {
-            const nextImages = [...prev.images, data.url];
-            return {
-              ...prev,
-              images: nextImages,
-              image_url: prev.image_url || data.url,
-            };
-          });
-          toast.success(`Image "${file.name}" uploaded successfully!`);
-        } else {
-          toast.error(data.error || 'Failed to upload image');
-        }
-      }
-    } catch {
-      toast.error('Network error during image upload');
-    } finally {
-      setIsUploadingImage(false);
-      if (fileInputRef.current) fileInputRef.current.value = '';
-    }
-  };
-
-  const handleRemoveImage = (indexToRemove: number) => {
-    setFormData((prev) => {
-      const nextImages = prev.images.filter((_, idx) => idx !== indexToRemove);
-      const nextImageUrl = prev.image_url === prev.images[indexToRemove]
-        ? (nextImages[0] || '')
-        : prev.image_url;
-      return {
-        ...prev,
-        images: nextImages,
-        image_url: nextImageUrl,
-      };
-    });
-  };
-
-  // Variant management in form
-  const handleAddVariant = () => {
-    const newVariant: ProductVariant = {
-      id: `var-${Date.now()}`,
-      name: '',
-      sku: '',
-      price: null,
-      stock: 5,
-      image_url: formData.image_url || undefined,
-    };
-    setFormData((prev) => ({
-      ...prev,
-      variants: [...prev.variants, newVariant],
-    }));
-  };
-
-  const handleRemoveVariant = (id: string) => {
-    setFormData((prev) => ({
-      ...prev,
-      variants: prev.variants.filter((v) => v.id !== id),
-    }));
-  };
-
-  const handleUpdateVariant = (id: string, field: keyof ProductVariant, value: any) => {
-    setFormData((prev) => ({
-      ...prev,
-      variants: prev.variants.map((v) => (v.id === id ? { ...v, [field]: value } : v)),
-    }));
-  };
-
-  const handleSaveProduct = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!formData.name.trim() || !formData.price.trim()) {
-      toast.error('Watch name and price are required');
+  const handleExportCsv = () => {
+    const listToExport = filteredProducts.length > 0 ? filteredProducts : products;
+    if (listToExport.length === 0) {
+      toast.error('No products to export');
       return;
     }
 
-    try {
-      setIsSubmitting(true);
-      const colorsArray = formData.colors
-        .split(',')
-        .map((c) => c.trim())
-        .filter(Boolean);
+    const headers = ['id', 'name', 'sku', 'barcode', 'category', 'price', 'regular_price', 'cost_price', 'stock_quantity', 'unit', 'badge_text', 'status'];
+    const rows = listToExport.map((p) => [
+      `"${p.id}"`,
+      `"${(p.name || '').replace(/"/g, '""')}"`,
+      `"${p.sku || ''}"`,
+      `"${p.barcode || ''}"`,
+      `"${p.category || 'General'}"`,
+      p.price || 0,
+      p.regular_price || '',
+      p.cost_price || 0,
+      p.stock_quantity ?? 0,
+      `"${p.unit || 'pcs'}"`,
+      `"${p.badge_text || ''}"`,
+      p.is_active ? 'Active' : 'Inactive',
+    ]);
 
-      // If variants exist, total stock can be sum of variant stocks
-      const calculatedStock = formData.variants.length > 0
-        ? formData.variants.reduce((acc, v) => acc + (Number(v.stock) || 0), 0)
-        : parseInt(formData.stock_quantity, 10) || 0;
-
-      const payload = {
-        name: formData.name.trim(),
-        sku: formData.sku.trim() || null,
-        slug: formData.slug.trim() || undefined,
-        badge_text: formData.badge_text.trim() || null,
-        category: formData.category,
-        price: parseFloat(formData.price) || 0,
-        regular_price: formData.regular_price ? parseFloat(formData.regular_price) : null,
-        stock_quantity: calculatedStock,
-        low_stock_threshold: parseInt(formData.low_stock_threshold, 10) || 5,
-        image_url: formData.image_url.trim() || (formData.images[0] || null),
-        images: formData.images,
-        variants: formData.variants,
-        dial_size: formData.dial_size.trim(),
-        water_resistance: formData.water_resistance.trim(),
-        movement: formData.movement.trim(),
-        strap_type: formData.strap_type.trim(),
-        colors: colorsArray,
-        warranty_months: parseInt(formData.warranty_months, 10) || 12,
-        description: formData.description.trim() || null,
-        is_active: formData.is_active,
-      };
-
-      if (editingProduct) {
-        const res = await fetch('/api/products', {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id: editingProduct.id, ...payload }),
-        });
-        const data = await res.json();
-        if (res.ok) {
-          toast.success('Watch model & variants updated successfully');
-          setIsFormOpen(false);
-          fetchProducts();
-        } else {
-          toast.error(data.error || 'Failed to update watch');
-        }
-      } else {
-        const res = await fetch('/api/products', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        });
-        const data = await res.json();
-        if (res.ok) {
-          toast.success('New watch, variants, and single landing page created!');
-          setIsFormOpen(false);
-          fetchProducts();
-        } else {
-          toast.error(data.error || 'Failed to add watch');
-        }
-      }
-    } catch {
-      toast.error('An error occurred while saving watch');
-    } finally {
-      setIsSubmitting(false);
-    }
+    const csvContent = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `catalog-export-${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    toast.success(`Exported ${listToExport.length} product(s) to CSV`);
   };
 
   // Quick Stock Adjustment (+1, +5, -1)
@@ -446,23 +298,8 @@ export default function ProductsPage() {
   };
 
   // Open Stock History Dialog
-  const openHistoryDialog = async (product: Product) => {
+  const openHistoryDialog = (product: Product) => {
     setHistoryProduct(product);
-    setStockLogs([]);
-    setLoadingLogs(true);
-    try {
-      const res = await fetch(`/api/products/${product.id}/logs`);
-      const data = await res.json();
-      if (res.ok && data.logs) {
-        setStockLogs(data.logs);
-      } else {
-        toast.error(data.error || 'Failed to load stock audit history');
-      }
-    } catch {
-      toast.error('Network error loading stock history');
-    } finally {
-      setLoadingLogs(false);
-    }
   };
 
   const handleToggleActive = async (product: Product) => {
@@ -477,7 +314,7 @@ export default function ProductsPage() {
         setProducts((prev) =>
           prev.map((p) => (p.id === product.id ? { ...p, is_active: nextActive } : p))
         );
-        toast.success(nextActive ? 'Watch activated for showcase' : 'Watch deactivated');
+        toast.success(nextActive ? 'Product activated for showcase' : 'Product deactivated');
       } else {
         toast.error('Failed to change status');
       }
@@ -492,7 +329,7 @@ export default function ProductsPage() {
       const res = await fetch(`/api/products?id=${deleteId}`, { method: 'DELETE' });
       if (res.ok) {
         setProducts((prev) => prev.filter((p) => p.id !== deleteId));
-        toast.success('Watch removed from catalog');
+        toast.success('Product removed from catalog');
         setDeleteId(null);
       } else {
         const data = await res.json();
@@ -521,21 +358,26 @@ export default function ProductsPage() {
     const discount = p.regular_price
       ? ` (${Math.round(((p.regular_price - p.price) / p.regular_price) * 100)}% ছাড়)`
       : '';
-    const colors = p.colors?.length ? p.colors.join(' | ') : 'Black';
+    const colors = p.colors?.length ? p.colors.join(' | ') : '';
     const publicUrl = getProductPublicUrl(p);
 
+    const spec1Label = business?.spec_label_1 || 'মডেল / কোড';
+    const spec2Label = business?.spec_label_2 || 'উপাদান / কোয়ালিটি';
+    const spec3Label = business?.spec_label_3 || 'সাইজ / ভ্যারিয়েন্ট';
+    const spec4Label = business?.spec_label_4 || 'স্পেসিফিকেশন';
+
     return (
-      `⌚ *${p.name.toUpperCase()}*\n` +
-      `🏷️ মডেল কোড: ${p.sku || 'N/A'}\n\n` +
+      `🛍️ *${p.name.toUpperCase()}*\n` +
+      (p.sku ? `🏷️ কোড: ${p.sku}\n\n` : '\n') +
       `✨ *প্রিমিয়াম স্পেসিফিকেশন:*\n` +
-      `• ডায়াল সাইজ: ${p.dial_size || '42mm'}\n` +
-      `• মুভমেন্ট: ${p.movement || 'Japanese Quartz'}\n` +
-      `• ওয়াটার রেজিস্ট্যান্ট: ${p.water_resistance || '3ATM Waterproof'}\n` +
-      `• স্ট্র্যাপ: ${p.strap_type || 'Genuine Leather'}\n` +
-      `• কালার অপশন: ${colors}\n` +
-      `• ওয়ারেন্টি: ${p.warranty_months} মাসের অফিশিয়াল ওয়ারেন্টি কার্ড 🛡️\n\n` +
+      (p.dial_size ? `• ${spec1Label}: ${p.dial_size}\n` : '') +
+      (p.water_resistance ? `• ${spec2Label}: ${p.water_resistance}\n` : '') +
+      (p.movement ? `• ${spec3Label}: ${p.movement}\n` : '') +
+      (p.strap_type ? `• ${spec4Label}: ${p.strap_type}\n` : '') +
+      (colors ? `• কালার অপশন: ${colors}\n` : '') +
+      (p.warranty_months ? `• ওয়ারেন্টি: ${p.warranty_months} মাস 🛡️\n\n` : '\n') +
       `💰 *মূল্য:* ${regular}*৳${p.price.toLocaleString('en-BD')}*${discount}\n\n` +
-      `🚚 ক্যাশ অন ডেলিভারি সুবিধা (ঢাকার ভেতরে ডেলিভারি চার্জ ৳১০০, ঢাকার বাইরে ৳১৫০ অগ্রিম প্রযোজ্য)।\n` +
+      `🚚 ক্যাশ অন ডেলিভারি সুবিধা!\n` +
       `📦 পার্সেল রিসিভ করার আগে চেক করে নেওয়ার সুযোগ রয়েছে!\n\n` +
       `👉 *সরাসরি অর্ডার করতে ক্লিক করুন:* ${publicUrl}`
     );
@@ -580,10 +422,17 @@ export default function ProductsPage() {
   // Filtered list
   const filteredProducts = useMemo(() => {
     return products.filter((p) => {
+      const q = search.trim().toLowerCase();
       const matchesSearch =
-        search === '' ||
-        p.name.toLowerCase().includes(search.toLowerCase()) ||
-        (p.sku && p.sku.toLowerCase().includes(search.toLowerCase()));
+        q === '' ||
+        p.name.toLowerCase().includes(q) ||
+        (p.sku && p.sku.toLowerCase().includes(q)) ||
+        (p.barcode && p.barcode.toLowerCase().includes(q)) ||
+        (p.variants && p.variants.some((v) =>
+          (v.name && v.name.toLowerCase().includes(q)) ||
+          (v.sku && v.sku.toLowerCase().includes(q)) ||
+          (v.barcode && v.barcode.toLowerCase().includes(q))
+        ));
 
       const matchesCategory =
         selectedCategory === 'all' ||
@@ -606,10 +455,15 @@ export default function ProductsPage() {
   }, [products, search, selectedCategory, stockFilter]);
 
   // Overall Stats
-  const totalWatches = products.length;
+  const totalProducts = products.length;
   const totalStock = products.reduce((acc, p) => acc + (p.stock_quantity || 0), 0);
   const totalSold = products.reduce((acc, p) => acc + (p.total_sold || 0), 0);
   const totalRevenue = products.reduce((acc, p) => acc + (p.total_sold || 0) * (p.price || 0), 0);
+  const totalStockCost = products.reduce((acc, p) => acc + (p.stock_quantity || 0) * (p.cost_price || 0), 0);
+  const totalPotentialProfit = products.reduce(
+    (acc, p) => acc + (p.stock_quantity || 0) * Math.max(0, (p.price || 0) - (p.cost_price || 0)),
+    0
+  );
   const lowStockCount = products.filter(
     (p) => (p.stock_quantity ?? 0) <= (p.low_stock_threshold ?? 5) && (p.stock_quantity ?? 0) > 0
   ).length;
@@ -617,30 +471,104 @@ export default function ProductsPage() {
 
   return (
     <div className="flex-1 space-y-6 p-6">
+
       {/* Header */}
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2.5">
             <h1 className="text-2xl font-bold tracking-tight text-foreground">
-              Products & Inventory Hub
+              পণ্য ও ইনভেন্টরি হাব
             </h1>
-            <Badge variant="outline" className="border-primary/40 bg-primary/10 text-primary text-xs font-semibold">
-              <Watch className="mr-1 h-3 w-3" /> E-Commerce Suite
+            <Badge variant="outline" className="border-primary/40 bg-primary/10 text-primary text-xs font-semibold px-2.5 py-0.5">
+              <Package className="mr-1 h-3.5 w-3.5 inline" /> {totalProducts} টি প্রোডাক্ট
             </Badge>
           </div>
-          <p className="text-sm text-muted-foreground mt-1">
-            Variants with stock tracking, direct drag & drop photo upload, sales analytics, and auto landing pages.
+          <p className="text-xs text-muted-foreground mt-1">
+            ইনভেন্টরি স্টক ট্র্যাকিং, ভ্যারিয়েন্ট, পাইকারি অফার ও সরাসরি ফটো ম্যানেজমেন্ট
           </p>
         </div>
-        <div className="flex items-center gap-2">
+
+        {/* Action Controls */}
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Primary Action Button */}
+          <Button
+            onClick={openCreateDialog}
+            className="shadow-md font-bold text-xs gap-1.5 bg-primary text-primary-foreground hover:bg-primary/90 h-9 px-4"
+          >
+            <Plus className="h-4 w-4" /> নতুন প্রোডাক্ট যোগ করুন
+          </Button>
+
+          {/* Quick Feature Pills */}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setIsForecastModalOpen(true)}
+            className="gap-1.5 border-purple-500/30 text-purple-600 dark:text-purple-400 hover:bg-purple-500/10 h-9 text-xs shadow-xs"
+            title="AI Inventory Demand Forecast & Stock-out Warnings"
+          >
+            <Brain className="h-3.5 w-3.5" />
+            <span>AI ফোরকাস্ট</span>
+          </Button>
+
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setIsSupplierPoModalOpen(true)}
+            className="gap-1.5 border-indigo-500/30 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-500/10 h-9 text-xs shadow-xs"
+            title="সাপ্লায়ার ও পারচেজ অর্ডার"
+          >
+            <Building2 className="h-3.5 w-3.5" />
+            <span>সাপ্লায়ার ও PO</span>
+          </Button>
+
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setIsBundlesModalOpen(true)}
+            className="gap-1.5 border-amber-500/30 text-amber-600 dark:text-amber-400 hover:bg-amber-500/10 h-9 text-xs shadow-xs"
+            title="কম্বো ও বান্ডেল প্যাকেজ"
+          >
+            <Layers className="h-3.5 w-3.5" />
+            <span>কম্বো ও বান্ডেল</span>
+          </Button>
+
+          {/* More Tools Dropdown */}
+          <DropdownMenu>
+            <DropdownMenuTrigger className="inline-flex items-center gap-1.5 h-9 rounded-md border border-input bg-background px-3 text-xs font-medium shadow-xs hover:bg-accent hover:text-accent-foreground cursor-pointer">
+              <span>আরও টুলস</span>
+              <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-56 p-1.5">
+              <DropdownMenuItem onClick={() => setIsMetaModalOpen(true)} className="text-xs gap-2 py-2 cursor-pointer">
+                <Share2 className="h-3.5 w-3.5 text-blue-500" /> Meta / WhatsApp ক্যাটালগ
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setIsImportModalOpen(true)} className="text-xs gap-2 py-2 cursor-pointer">
+                <FileSpreadsheet className="h-3.5 w-3.5 text-emerald-500" /> CSV ফাইল থেকে ইমপোর্ট
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={handleExportCsv} className="text-xs gap-2 py-2 cursor-pointer">
+                <Download className="h-3.5 w-3.5 text-muted-foreground" /> CSV ডাউনলোড (Export)
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => { setAiCopyProduct(null); setIsAiCopyOpen(true); }} className="text-xs gap-2 py-2 cursor-pointer">
+                <Sparkles className="h-3.5 w-3.5 text-primary" /> AI কপিরাইটার স্টুডিও
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => { window.location.href = '/settings?tab=store'; }} className="text-xs gap-2 py-2 cursor-pointer">
+                <Store className="h-3.5 w-3.5 text-primary" /> স্টোরফ্রন্ট CMS সেটিংস
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => { window.open('/', '_blank'); }} className="text-xs gap-2 py-2 cursor-pointer">
+                <ExternalLink className="h-3.5 w-3.5 text-amber-500" /> লাইভ স্টোর ভিজিট
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
           {/* Grid vs Table View Mode */}
-          <div className="flex items-center bg-muted/70 p-0.5 rounded-lg border border-border/40">
+          <div className="flex items-center bg-muted/70 p-0.5 rounded-lg border border-border/40 h-9">
             <button
               onClick={() => setViewMode('grid')}
               className={`p-1.5 rounded-md text-xs font-medium transition-colors ${
                 viewMode === 'grid' ? 'bg-background shadow-xs text-foreground' : 'text-muted-foreground hover:text-foreground'
               }`}
-              title="Grid View"
+              title="গ্রিড ভিউ"
             >
               <LayoutGrid className="h-4 w-4" />
             </button>
@@ -649,84 +577,86 @@ export default function ProductsPage() {
               className={`p-1.5 rounded-md text-xs font-medium transition-colors ${
                 viewMode === 'table' ? 'bg-background shadow-xs text-foreground' : 'text-muted-foreground hover:text-foreground'
               }`}
-              title="Sales & Analytics Table View"
+              title="টেবিল ভিউ"
             >
               <TableIcon className="h-4 w-4" />
             </button>
           </div>
 
-          <Link href="/settings?tab=delivery">
-            <Button variant="outline" size="sm" className="gap-1.5 shadow-xs">
-              <Truck className="h-4 w-4 text-primary" />
-              <span>Delivery Pricing</span>
-            </Button>
-          </Link>
-          <Button variant="outline" size="sm" onClick={fetchProducts} disabled={loading}>
-            <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
-            Refresh
-          </Button>
-          <Button onClick={openCreateDialog} className="shadow-sm">
-            <Plus className="mr-2 h-4 w-4" /> Add New Watch
+          {/* Refresh Button */}
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={fetchProducts}
+            disabled={loading}
+            className="h-9 w-9 shrink-0 shadow-xs"
+            title="রিফ্রেশ"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
           </Button>
         </div>
       </div>
 
-      {/* Stats Cards */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Card className="border border-border/60 bg-card/60 shadow-none">
+      {/* Stats KPI Cards */}
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <Card className="border border-border/70 bg-card shadow-xs">
           <CardContent className="p-4 flex items-center justify-between">
             <div>
-              <p className="text-xs font-medium text-muted-foreground">Catalog Models</p>
-              <h3 className="text-2xl font-bold text-foreground mt-1">{totalWatches}</h3>
-              <p className="text-[11px] text-muted-foreground mt-0.5">{totalStock} pcs in warehouse</p>
+              <p className="text-xs font-medium text-muted-foreground">ক্যাটালগ প্রোডাক্ট</p>
+              <h3 className="text-2xl font-bold text-foreground mt-0.5">{totalProducts} <span className="text-xs font-normal text-muted-foreground">টি</span></h3>
+              <p className="text-[11px] text-muted-foreground mt-0.5">{totalStock} পিস মোট ওয়্যারহাউস স্টক</p>
             </div>
-            <div className="h-10 w-10 rounded-lg bg-primary/10 text-primary flex items-center justify-center">
-              <Watch className="h-5 w-5" />
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="border border-border/60 bg-card/60 shadow-none">
-          <CardContent className="p-4 flex items-center justify-between">
-            <div>
-              <p className="text-xs font-medium text-muted-foreground">Total Units Sold</p>
-              <h3 className="text-2xl font-bold text-foreground mt-1">{totalSold} <span className="text-xs font-normal text-muted-foreground">units</span></h3>
-              <p className="text-[11px] text-emerald-600 dark:text-emerald-400 mt-0.5 font-medium">Recorded via orders</p>
-            </div>
-            <div className="h-10 w-10 rounded-lg bg-emerald-500/10 text-emerald-500 flex items-center justify-center">
+            <div className="h-10 w-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
               <Package className="h-5 w-5" />
             </div>
           </CardContent>
         </Card>
 
-        <Card className="border border-border/60 bg-card/60 shadow-none">
+        <Card className="border border-border/70 bg-card shadow-xs">
           <CardContent className="p-4 flex items-center justify-between">
             <div>
-              <p className="text-xs font-medium text-muted-foreground">Total Sales Revenue</p>
-              <h3 className="text-2xl font-bold text-foreground mt-1">৳{totalRevenue.toLocaleString('en-BD')}</h3>
-              <p className="text-[11px] text-muted-foreground mt-0.5">Across watch models</p>
+              <p className="text-xs font-medium text-muted-foreground">বিক্রিত ইউনিট ও রেভিনিউ</p>
+              <h3 className="text-2xl font-bold text-foreground mt-0.5">{totalSold} <span className="text-xs font-normal text-muted-foreground">পিস</span></h3>
+              <p className="text-[11px] text-emerald-600 dark:text-emerald-400 mt-0.5 font-medium">
+                মোট সেলস: ৳{totalRevenue.toLocaleString('en-BD')}
+              </p>
             </div>
-            <div className="h-10 w-10 rounded-lg bg-blue-500/10 text-blue-500 flex items-center justify-center">
+            <div className="h-10 w-10 rounded-xl bg-emerald-500/10 text-emerald-500 flex items-center justify-center shrink-0">
               <CircleDollarSign className="h-5 w-5" />
             </div>
           </CardContent>
         </Card>
 
-        <Card className="border border-border/60 bg-card/60 shadow-none">
+        <Card className="border border-border/70 bg-card shadow-xs">
           <CardContent className="p-4 flex items-center justify-between">
             <div>
-              <p className="text-xs font-medium text-muted-foreground">Stock Alerts</p>
-              <h3 className="text-2xl font-bold text-foreground mt-1">
+              <p className="text-xs font-medium text-muted-foreground">স্টক মূল্য ও সম্ভাব্য লাভ</p>
+              <h3 className="text-2xl font-bold text-foreground mt-0.5">৳{totalPotentialProfit.toLocaleString('en-BD')}</h3>
+              <p className="text-[11px] text-muted-foreground mt-0.5">
+                কেনা খরচ: ৳{totalStockCost.toLocaleString('en-BD')} • সম্ভাব্য গ্রস লাভ
+              </p>
+            </div>
+            <div className="h-10 w-10 rounded-xl bg-blue-500/10 text-blue-500 flex items-center justify-center shrink-0">
+              <TrendingUp className="h-5 w-5" />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border border-border/70 bg-card shadow-xs">
+          <CardContent className="p-4 flex items-center justify-between">
+            <div>
+              <p className="text-xs font-medium text-muted-foreground">ইনভেন্টরি সতর্কতা</p>
+              <h3 className="text-2xl font-bold text-foreground mt-0.5">
                 {lowStockCount + outOfStockCount}
                 <span className="text-xs font-normal text-muted-foreground ml-1.5">
-                  ({lowStockCount} low, {outOfStockCount} out)
+                  ({lowStockCount} টি লো, {outOfStockCount} টি শেষ)
                 </span>
               </h3>
               <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-0.5 font-medium">
-                {lowStockCount + outOfStockCount > 0 ? 'Requires attention' : 'Inventory healthy'}
+                {lowStockCount + outOfStockCount > 0 ? 'রিস্টক রিকমেন্ডেশন রয়েছে' : 'ইনভেন্টরি স্বাস্থ্য ভালো'}
               </p>
             </div>
-            <div className="h-10 w-10 rounded-lg bg-amber-500/10 text-amber-500 flex items-center justify-center">
+            <div className="h-10 w-10 rounded-xl bg-amber-500/10 text-amber-500 flex items-center justify-center shrink-0">
               <AlertTriangle className="h-5 w-5" />
             </div>
           </CardContent>
@@ -736,14 +666,36 @@ export default function ProductsPage() {
       {/* Filter and Search Bar */}
       <div className="space-y-3">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="relative flex-1 max-w-md">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Search by watch name or model code..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="pl-9 h-9"
-            />
+          <div className="flex items-center gap-2 flex-1 max-w-md">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search by name, SKU, or scan barcode (EAN-13)..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="pl-9 pr-8 h-9"
+              />
+              {search && (
+                <button
+                  type="button"
+                  onClick={() => setSearch('')}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground text-xs p-1"
+                  title="Clear search"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              onClick={() => setIsCameraScannerOpen(true)}
+              className="h-9 w-9 shrink-0 border-amber-500/40 text-amber-600 dark:text-amber-400 hover:bg-amber-500/10 shadow-xs"
+              title="ক্যামেরা দিয়ে বারকোড স্ক্যান করুন"
+            >
+              <Camera className="h-4 w-4" />
+            </Button>
           </div>
 
           {/* Stock Filter Pills */}
@@ -821,19 +773,19 @@ export default function ProductsPage() {
       {loading ? (
         <div className="py-20 text-center text-muted-foreground">
           <RefreshCw className="h-8 w-8 animate-spin mx-auto mb-3 text-primary/60" />
-          <p className="text-sm">Loading watch catalog and inventory...</p>
+          <p className="text-sm">Loading product catalog and inventory...</p>
         </div>
       ) : filteredProducts.length === 0 ? (
         <div className="rounded-xl border border-dashed p-12 text-center">
-          <Watch className="mx-auto h-12 w-12 text-muted-foreground/50" />
-          <h3 className="mt-4 text-lg font-semibold text-foreground">No watch models found</h3>
+          <Package className="mx-auto h-12 w-12 text-muted-foreground/50" />
+          <h3 className="mt-4 text-lg font-semibold text-foreground">No products found</h3>
           <p className="mt-1 text-sm text-muted-foreground">
             {search || selectedCategory !== 'all' || stockFilter !== 'all'
               ? 'Try changing your search term or filters.'
-              : 'Start by adding your first manly watch model.'}
+              : 'Start by adding your first product.'}
           </p>
           <Button onClick={openCreateDialog} className="mt-4" size="sm">
-            <Plus className="mr-2 h-4 w-4" /> Add New Watch
+            <Plus className="mr-2 h-4 w-4" /> Add New Product
           </Button>
         </div>
       ) : viewMode === 'table' ? (
@@ -843,9 +795,10 @@ export default function ProductsPage() {
             <table className="w-full text-xs text-left">
               <thead className="bg-muted/50 text-muted-foreground border-b border-border/60 font-medium">
                 <tr>
-                  <th className="p-3">Watch Model</th>
+                  <th className="p-3">Product Name</th>
                   <th className="p-3">Category</th>
                   <th className="p-3">Price</th>
+                  <th className="p-3">Cost & Profit</th>
                   <th className="p-3">Stock Units</th>
                   <th className="p-3 text-center">Page Views</th>
                   <th className="p-3 text-center">Total Sold</th>
@@ -871,7 +824,7 @@ export default function ProductsPage() {
                             <img src={p.image_url} alt={p.name} className="h-full w-full object-cover" />
                           ) : (
                             <div className="h-full w-full flex items-center justify-center text-muted-foreground">
-                              <Watch className="h-5 w-5" />
+                              <Package className="h-5 w-5" />
                             </div>
                           )}
                         </div>
@@ -891,11 +844,25 @@ export default function ProductsPage() {
                       </td>
                       <td className="p-3">
                         <Badge variant="secondary" className="text-[10px] capitalize">
-                          {p.category || 'Quartz'}
+                          {p.category || 'General'}
                         </Badge>
                       </td>
                       <td className="p-3 font-semibold text-foreground">
                         ৳{p.price.toLocaleString('en-BD')}
+                      </td>
+                      <td className="p-3">
+                        {p.cost_price ? (
+                          <div>
+                            <span className="font-semibold text-emerald-600 dark:text-emerald-400">
+                              +৳{(p.price - p.cost_price).toLocaleString('en-BD')}
+                            </span>
+                            <p className="text-[10px] text-muted-foreground">
+                              Cost: ৳{p.cost_price} ({(((p.price - p.cost_price) / p.price) * 100).toFixed(0)}%)
+                            </p>
+                          </div>
+                        ) : (
+                          <span className="text-muted-foreground text-[10px]">Cost not set</span>
+                        )}
                       </td>
                       <td className="p-3">
                         <div className="flex items-center gap-2">
@@ -953,6 +920,18 @@ export default function ProductsPage() {
                           <Button
                             variant="ghost"
                             size="icon"
+                            className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                            title="Print Barcode & Thermal Sticker"
+                            onClick={() => {
+                              setBarcodeProduct(p);
+                              setIsBarcodeModalOpen(true);
+                            }}
+                          >
+                            <BarcodeIcon className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
                             className="h-7 w-7"
                             title="Stock History Logs"
                             onClick={() => openHistoryDialog(p)}
@@ -968,6 +947,30 @@ export default function ProductsPage() {
                           >
                             <ExternalLink className="h-3.5 w-3.5" />
                           </Link>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-amber-500 hover:bg-amber-500/10"
+                            title="Customer Reviews & Ratings"
+                            onClick={() => {
+                              setReviewsProduct(p);
+                              setIsReviewsModalOpen(true);
+                            }}
+                          >
+                            <Star className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-primary hover:bg-primary/10"
+                            title="AI Sales Copy"
+                            onClick={() => {
+                              setAiCopyProduct(p);
+                              setIsAiCopyOpen(true);
+                            }}
+                          >
+                            <Sparkles className="h-3.5 w-3.5" />
+                          </Button>
                           <Button
                             variant="ghost"
                             size="icon"
@@ -1007,7 +1010,7 @@ export default function ProductsPage() {
                   !p.is_active ? 'opacity-70 bg-muted/20' : 'bg-card'
                 }`}
               >
-                {/* Watch Image Banner */}
+                {/* Product Image Banner */}
                 <div className="relative h-44 w-full bg-muted/40 overflow-hidden group">
                   {p.image_url ? (
                     // eslint-disable-next-line @next/next/no-img-element
@@ -1018,7 +1021,7 @@ export default function ProductsPage() {
                     />
                   ) : (
                     <div className="h-full w-full flex flex-col items-center justify-center text-muted-foreground/60 bg-muted/30">
-                      <Watch className="h-12 w-12 stroke-[1.2]" />
+                      <Package className="h-12 w-12 stroke-[1.2]" />
                       <span className="text-xs mt-1">No Image Available</span>
                     </div>
                   )}
@@ -1031,7 +1034,7 @@ export default function ProductsPage() {
                       </Badge>
                     ) : (
                       <Badge variant="secondary" className="text-[10px] uppercase font-semibold tracking-wider">
-                        {p.category || 'Watch'}
+                        {p.category || 'General'}
                       </Badge>
                     )}
                     {discountPct && (
@@ -1109,6 +1112,16 @@ export default function ProductsPage() {
                       <span title="Units Sold">📦 {p.total_sold || 0} sold</span>
                     </div>
                   </div>
+
+                  {/* Unit Profit Pill */}
+                  {p.cost_price ? (
+                    <div className="flex items-center justify-between text-[11px] bg-emerald-500/5 border border-emerald-500/20 px-2 py-1 rounded-md">
+                      <span className="text-muted-foreground">Profit per unit:</span>
+                      <span className="font-semibold text-emerald-600 dark:text-emerald-400">
+                        +৳{(p.price - p.cost_price).toLocaleString('en-BD')} ({(((p.price - p.cost_price) / p.price) * 100).toFixed(0)}%)
+                      </span>
+                    </div>
+                  ) : null}
 
                   {/* Stock Quick Adjustment Bar */}
                   <div className="rounded-lg bg-muted/50 p-2 border border-border/40 space-y-1.5">
@@ -1235,8 +1248,56 @@ export default function ProductsPage() {
                       <Button
                         variant="ghost"
                         size="icon"
+                        className="h-7 w-7 text-amber-500 hover:bg-amber-500/10"
+                        title="Customer Reviews & Ratings"
+                        onClick={() => {
+                          setReviewsProduct(p);
+                          setIsReviewsModalOpen(true);
+                        }}
+                      >
+                        <Star className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 text-primary hover:bg-primary/10"
+                        title="AI Sales Copy"
+                        onClick={() => {
+                          setAiCopyProduct(p);
+                          setIsAiCopyOpen(true);
+                        }}
+                      >
+                        <Sparkles className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 text-violet-600 dark:text-violet-400 hover:bg-violet-500/10"
+                        title="AI Dynamic Catalog Ad Studio (Meta / TikTok / Google)"
+                        onClick={() => {
+                          setAdStudioProduct(p);
+                          setIsAdStudioOpen(true);
+                        }}
+                      >
+                        <Layers className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
                         className="h-7 w-7 text-muted-foreground hover:text-foreground"
-                        title="Edit watch"
+                        title="Print Barcode & Thermal Sticker"
+                        onClick={() => {
+                          setBarcodeProduct(p);
+                          setIsBarcodeModalOpen(true);
+                        }}
+                      >
+                        <BarcodeIcon className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                        title="Edit product"
                         onClick={() => openEditDialog(p)}
                       >
                         <Pencil className="h-3.5 w-3.5" />
@@ -1254,7 +1315,7 @@ export default function ProductsPage() {
                         variant="ghost"
                         size="icon"
                         className="h-7 w-7 text-destructive hover:text-destructive hover:bg-destructive/10"
-                        title="Delete watch"
+                        title="Delete product"
                         onClick={() => setDeleteId(p.id)}
                       >
                         <Trash2 className="h-3.5 w-3.5" />
@@ -1283,546 +1344,319 @@ export default function ProductsPage() {
         </div>
       )}
 
-      {/* Stock Audit History Dialog */}
-      <Dialog open={!!historyProduct} onOpenChange={() => setHistoryProduct(null)}>
-        <DialogContent className="max-w-md max-h-[80vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-base">
-              <History className="h-5 w-5 text-primary" />
-              Stock Audit Trail — {historyProduct?.name}
-            </DialogTitle>
-            <DialogDescription>
-              Chronological log of restocks, manual adjustments, and customer orders.
-            </DialogDescription>
-          </DialogHeader>
+      {/* Stock Audit & Quick Restock Modal */}
+      <StockAuditModal
+        product={historyProduct}
+        isOpen={!!historyProduct}
+        onClose={() => setHistoryProduct(null)}
+        onStockUpdated={(productId, newStock) => {
+          setProducts((prev) =>
+            prev.map((p) => (p.id === productId ? { ...p, stock_quantity: newStock } : p))
+          );
+        }}
+      />
 
-          {loadingLogs ? (
-            <div className="py-8 text-center text-muted-foreground">
-              <RefreshCw className="h-6 w-6 animate-spin mx-auto mb-2" />
-              <p className="text-xs">Loading audit trail...</p>
-            </div>
-          ) : stockLogs.length === 0 ? (
-            <div className="py-8 text-center text-muted-foreground text-xs">
-              No audit logs recorded yet for this product.
-            </div>
-          ) : (
-            <div className="space-y-2 py-2">
-              {stockLogs.map((log) => (
-                <div
-                  key={log.id}
-                  className="rounded-lg border border-border/50 p-2.5 text-xs flex items-center justify-between bg-muted/20"
-                >
-                  <div>
-                    <div className="flex items-center gap-1.5 font-medium">
-                      <span
-                        className={`font-bold px-1.5 py-0.2 rounded text-[10px] ${
-                          log.change_qty > 0
-                            ? 'bg-emerald-500/10 text-emerald-600'
-                            : 'bg-red-500/10 text-red-600'
-                        }`}
-                      >
-                        {log.change_qty > 0 ? `+${log.change_qty}` : log.change_qty} pcs
-                      </span>
-                      <span className="capitalize text-muted-foreground text-[11px]">
-                        {log.reason.replace(/_/g, ' ')}
-                      </span>
-                    </div>
-                    <p className="text-[10px] text-muted-foreground mt-0.5">
-                      {new Date(log.created_at).toLocaleString('en-BD')}
-                    </p>
-                  </div>
-                  <div className="text-right text-[11px]">
-                    <span className="text-muted-foreground">{log.previous_stock}</span>
-                    <span className="mx-1 text-muted-foreground">➔</span>
-                    <span className="font-bold text-foreground">{log.new_stock}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
-
-      {/* Quick Restock Dialog */}
+      {/* Quick Restock Dialog (Ultra-Modern & Responsive) */}
       <Dialog open={!!restockProduct} onOpenChange={() => setRestockProduct(null)}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Package className="h-5 w-5 text-primary" />
-              Adjust Stock Quantity
-            </DialogTitle>
-            <DialogDescription>
-              Update total in-stock units for {restockProduct?.name}.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-3 py-2">
-            <div className="space-y-1.5">
-              <Label htmlFor="restock_qty">Total Quantity in Stock</Label>
-              <Input
-                id="restock_qty"
-                type="number"
-                min="0"
-                value={restockQty}
-                onChange={(e) => setRestockQty(e.target.value)}
-                placeholder="e.g. 25"
-                autoFocus
-              />
-            </div>
-            <p className="text-xs text-muted-foreground">
-              This action will be automatically recorded in the product stock audit log.
-            </p>
-          </div>
-
-          <DialogFooter className="gap-2">
-            <Button variant="outline" size="sm" onClick={() => setRestockProduct(null)}>
-              Cancel
-            </Button>
-            <Button size="sm" onClick={handleDirectRestock} disabled={isRestocking}>
-              {isRestocking ? 'Updating...' : 'Save Stock'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Add / Edit Watch Modal */}
-      <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Watch className="h-5 w-5 text-primary" />
-              {editingProduct ? 'Edit Watch Model & Variants' : 'Add New Watch with Variants & Direct Upload'}
-            </DialogTitle>
-            <DialogDescription>
-              Configure watch specifications, direct image uploads, variant stocks, and pricing (৳).
-            </DialogDescription>
-          </DialogHeader>
-
-          <form onSubmit={handleSaveProduct} className="space-y-5 py-2">
-            {/* Section 1: Basic Info */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-1.5 md:col-span-2">
-                <Label htmlFor="name">Watch Model Name *</Label>
-                <Input
-                  id="name"
-                  placeholder="e.g. Curren 8329 Luxury Chronograph Quartz Watch"
-                  value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  required
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <Label htmlFor="sku">Model Code / SKU</Label>
-                <Input
-                  id="sku"
-                  placeholder="e.g. CR-8329-SLV"
-                  value={formData.sku}
-                  onChange={(e) => setFormData({ ...formData, sku: e.target.value })}
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <Label htmlFor="slug">Custom URL Slug (Optional)</Label>
-                <Input
-                  id="slug"
-                  placeholder="e.g. curren-8329-luxury"
-                  value={formData.slug}
-                  onChange={(e) => setFormData({ ...formData, slug: e.target.value })}
-                />
-                <p className="text-[10px] text-muted-foreground">
-                  Public page: <code className="bg-muted px-1 rounded">/p/{formData.slug || '[auto-generated]'}</code>
-                </p>
-              </div>
-
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <Label htmlFor="category">Category</Label>
-                  <span className="text-[10px] text-muted-foreground">Select or type custom</span>
-                </div>
-                <Input
-                  id="category"
-                  list="category-options-list"
-                  placeholder="e.g. General, Fashion, Electronics, Cosmetics, Watches..."
-                  value={formData.category}
-                  onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                  className="w-full"
-                />
-                <datalist id="category-options-list">
-                  {dynamicCategories
-                    .filter((c) => c.id !== 'all')
-                    .map((cat) => (
-                      <option key={cat.id} value={cat.label} />
-                    ))}
-                </datalist>
-              </div>
-
-              <div className="space-y-1.5">
-                <Label htmlFor="badge">Promotional Badge (Optional)</Label>
-                <Input
-                  id="badge"
-                  placeholder="e.g. BESTSELLER, HOT DEAL, LIMITED"
-                  value={formData.badge_text}
-                  onChange={(e) => setFormData({ ...formData, badge_text: e.target.value })}
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <Label htmlFor="price">Selling Price (৳ BDT) *</Label>
-                <Input
-                  id="price"
-                  type="number"
-                  placeholder="2450"
-                  value={formData.price}
-                  onChange={(e) => setFormData({ ...formData, price: e.target.value })}
-                  required
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <Label htmlFor="regular_price">Regular / MRP Price (৳ BDT)</Label>
-                <Input
-                  id="regular_price"
-                  type="number"
-                  placeholder="3500 (for discount display)"
-                  value={formData.regular_price}
-                  onChange={(e) => setFormData({ ...formData, regular_price: e.target.value })}
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <Label htmlFor="stock">Base Stock Quantity</Label>
-                <Input
-                  id="stock"
-                  type="number"
-                  min="0"
-                  placeholder="15"
-                  value={formData.stock_quantity}
-                  onChange={(e) => setFormData({ ...formData, stock_quantity: e.target.value })}
-                  disabled={formData.variants.length > 0}
-                />
-                {formData.variants.length > 0 && (
-                  <p className="text-[10px] text-amber-500">Calculated automatically from variant stocks below</p>
+        <DialogContent className="w-[95vw] sm:max-w-md rounded-2xl p-5 border shadow-2xl bg-card">
+          <DialogHeader className="pb-3 border-b">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0 overflow-hidden">
+                {restockProduct?.image_url ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={restockProduct.image_url}
+                    alt={restockProduct.name}
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <Package className="h-6 w-6 text-primary" />
                 )}
               </div>
+              <div className="min-w-0 flex-1">
+                <DialogTitle className="text-base font-bold text-foreground truncate">
+                  {restockProduct?.name}
+                </DialogTitle>
+                <div className="flex items-center gap-2 mt-0.5 text-xs text-muted-foreground">
+                  <span className="font-mono">SKU: {restockProduct?.sku || 'N/A'}</span>
+                  <span>•</span>
+                  <span>বর্তমান স্টক: <strong className="text-foreground">{restockProduct?.stock_quantity ?? 0} pcs</strong></span>
+                </div>
+              </div>
+            </div>
+          </DialogHeader>
 
-              <div className="space-y-1.5">
-                <Label htmlFor="low_stock">Low Stock Alert Threshold</Label>
+          <div className="space-y-4 py-2">
+            {/* Input + Quick Steppers */}
+            <div className="space-y-2">
+              <Label htmlFor="restock_qty" className="text-xs font-semibold flex items-center justify-between">
+                <span>নতুন ইন-স্টক সংখ্যা নির্ধারণ করুন</span>
+                <span className="text-[11px] text-muted-foreground font-normal">একক: পিস (pcs)</span>
+              </Label>
+              <div className="relative">
                 <Input
-                  id="low_stock"
+                  id="restock_qty"
                   type="number"
-                  min="1"
-                  placeholder="5"
-                  value={formData.low_stock_threshold}
-                  onChange={(e) => setFormData({ ...formData, low_stock_threshold: e.target.value })}
+                  min="0"
+                  value={restockQty}
+                  onChange={(e) => setRestockQty(e.target.value)}
+                  placeholder="যেমন: 25"
+                  className="h-11 text-base font-bold font-mono pl-3 pr-14"
+                  autoFocus
                 />
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground font-medium pointer-events-none">
+                  pcs
+                </span>
               </div>
             </div>
 
-            {/* Section 2: Direct Image Drag & Drop Upload */}
-            <div className="space-y-2 border-t pt-4">
-              <Label className="text-sm font-semibold flex items-center justify-between">
-                <span>Product Images & Gallery (Direct Upload)</span>
-                <span className="text-xs text-muted-foreground">{formData.images.length} images uploaded</span>
-              </Label>
-
-              {/* Upload Dropzone */}
-              <div
-                onClick={() => fileInputRef.current?.click()}
-                className="border-2 border-dashed border-border/80 hover:border-primary/80 rounded-xl p-4 text-center cursor-pointer transition-colors bg-muted/20 hover:bg-muted/30"
-              >
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/png, image/jpeg, image/webp"
-                  multiple
-                  onChange={handleImageFileSelect}
-                  className="hidden"
-                />
-                <div className="flex flex-col items-center justify-center gap-1.5">
-                  <div className="h-9 w-9 rounded-full bg-primary/10 text-primary flex items-center justify-center">
-                    {isUploadingImage ? (
-                      <RefreshCw className="h-5 w-5 animate-spin" />
-                    ) : (
-                      <Upload className="h-5 w-5" />
-                    )}
-                  </div>
-                  <p className="text-xs font-semibold text-foreground">
-                    {isUploadingImage ? 'Uploading image to storage...' : 'Click or Drag & Drop watch photos here'}
-                  </p>
-                  <p className="text-[10px] text-muted-foreground">PNG, JPG, or WebP up to 10MB each</p>
-                </div>
-              </div>
-
-              {/* Uploaded Thumbnails Grid */}
-              {formData.images.length > 0 && (
-                <div className="flex flex-wrap gap-2 pt-1">
-                  {formData.images.map((url, idx) => {
-                    const isCover = formData.image_url === url;
-                    return (
-                      <div
-                        key={idx}
-                        className={`relative h-18 w-18 rounded-lg overflow-hidden border-2 group ${
-                          isCover ? 'border-primary ring-1 ring-primary' : 'border-border'
-                        }`}
-                      >
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={url} alt={`Upload ${idx}`} className="h-full w-full object-cover" />
-
-                        {/* Remove Button */}
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveImage(idx)}
-                          className="absolute top-1 right-1 h-4 w-4 rounded-full bg-black/80 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                          title="Remove image"
-                        >
-                          <X className="h-3 w-3" />
-                        </button>
-
-                        {/* Cover image label/selector */}
-                        <button
-                          type="button"
-                          onClick={() => setFormData({ ...formData, image_url: url })}
-                          className={`absolute bottom-0 inset-x-0 text-[8px] py-0.5 text-center font-bold transition-opacity ${
-                            isCover ? 'bg-primary text-primary-foreground' : 'bg-black/60 text-white opacity-0 group-hover:opacity-100'
-                          }`}
-                        >
-                          {isCover ? 'Cover' : 'Set Cover'}
-                        </button>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-
-            {/* Section 3: Variants Management */}
-            <div className="space-y-3 border-t pt-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <Label className="text-sm font-semibold">Model Variants (Colors / Straps)</Label>
-                  <p className="text-[11px] text-muted-foreground">
-                    Define specific color/strap combinations with individual stock and price overrides.
-                  </p>
-                </div>
-                <Button type="button" variant="outline" size="sm" onClick={handleAddVariant} className="h-7 text-xs">
-                  <Plus className="h-3 w-3 mr-1" /> Add Variant
-                </Button>
-              </div>
-
-              {formData.variants.length > 0 && (
-                <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
-                  {formData.variants.map((v) => (
-                    <div
-                      key={v.id}
-                      className="grid grid-cols-12 gap-2 p-2.5 rounded-lg border border-border/60 bg-muted/20 items-center text-xs"
-                    >
-                      <div className="col-span-5">
-                        <Label className="text-[10px] text-muted-foreground">Variant Name *</Label>
-                        <Input
-                          placeholder="e.g. Silver Dial / Leather"
-                          value={v.name}
-                          onChange={(e) => handleUpdateVariant(v.id, 'name', e.target.value)}
-                          className="h-7 text-xs"
-                          required
-                        />
-                      </div>
-                      <div className="col-span-3">
-                        <Label className="text-[10px] text-muted-foreground">Price Override (৳)</Label>
-                        <Input
-                          type="number"
-                          placeholder={formData.price || 'Same'}
-                          value={v.price ? String(v.price) : ''}
-                          onChange={(e) => handleUpdateVariant(v.id, 'price', e.target.value ? Number(e.target.value) : null)}
-                          className="h-7 text-xs"
-                        />
-                      </div>
-                      <div className="col-span-3">
-                        <Label className="text-[10px] text-muted-foreground">Stock (Pcs) *</Label>
-                        <Input
-                          type="number"
-                          min="0"
-                          value={v.stock}
-                          onChange={(e) => handleUpdateVariant(v.id, 'stock', parseInt(e.target.value, 10) || 0)}
-                          className="h-7 text-xs"
-                          required
-                        />
-                      </div>
-                      <div className="col-span-1 flex justify-end pt-3">
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveVariant(v.id)}
-                          className="text-destructive hover:bg-destructive/10 p-1 rounded"
-                          title="Remove variant"
-                        >
-                          <X className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Section 4: Technical Specifications */}
-            <div className="space-y-3 border-t pt-4">
-              <Label className="text-sm font-semibold">Technical Specifications</Label>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <Label htmlFor="dial" className="text-xs text-muted-foreground">Dial Size</Label>
-                  <Input
-                    id="dial"
-                    value={formData.dial_size}
-                    onChange={(e) => setFormData({ ...formData, dial_size: e.target.value })}
-                    className="h-8 text-xs"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label htmlFor="water" className="text-xs text-muted-foreground">Water Resistance</Label>
-                  <Input
-                    id="water"
-                    value={formData.water_resistance}
-                    onChange={(e) => setFormData({ ...formData, water_resistance: e.target.value })}
-                    className="h-8 text-xs"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label htmlFor="mov" className="text-xs text-muted-foreground">Movement Engine</Label>
-                  <Input
-                    id="mov"
-                    value={formData.movement}
-                    onChange={(e) => setFormData({ ...formData, movement: e.target.value })}
-                    className="h-8 text-xs"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label htmlFor="strap" className="text-xs text-muted-foreground">Strap Material</Label>
-                  <Input
-                    id="strap"
-                    value={formData.strap_type}
-                    onChange={(e) => setFormData({ ...formData, strap_type: e.target.value })}
-                    className="h-8 text-xs"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label htmlFor="warranty" className="text-xs text-muted-foreground">Warranty (Months)</Label>
-                  <Input
-                    id="warranty"
-                    type="number"
-                    value={formData.warranty_months}
-                    onChange={(e) => setFormData({ ...formData, warranty_months: e.target.value })}
-                    className="h-8 text-xs"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label htmlFor="colors" className="text-xs text-muted-foreground">Color Tags (Comma separated)</Label>
-                  <Input
-                    id="colors"
-                    value={formData.colors}
-                    onChange={(e) => setFormData({ ...formData, colors: e.target.value })}
-                    className="h-8 text-xs"
-                  />
-                </div>
+            {/* Quick Adjustment Pills */}
+            <div className="space-y-1.5">
+              <span className="text-[11px] text-muted-foreground font-medium block">
+                কুইক অ্যাডজাস্টমেন্ট বাটন:
+              </span>
+              <div className="grid grid-cols-6 gap-1.5">
+                {[
+                  { label: '-10', val: -10 },
+                  { label: '-1', val: -1 },
+                  { label: '+1', val: 1 },
+                  { label: '+5', val: 5 },
+                  { label: '+10', val: 10 },
+                  { label: '+25', val: 25 },
+                ].map((step) => (
+                  <Button
+                    key={step.label}
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-8 text-xs font-mono px-0 font-semibold hover:bg-primary/10 hover:border-primary/40"
+                    onClick={() => {
+                      const cur = parseInt(restockQty || '0', 10) || 0;
+                      const next = Math.max(0, cur + step.val);
+                      setRestockQty(String(next));
+                    }}
+                  >
+                    {step.label}
+                  </Button>
+                ))}
               </div>
             </div>
 
-            {/* Description */}
-            <div className="space-y-1.5 border-t pt-4">
-              <Label htmlFor="desc">Short Description / Highlights</Label>
-              <textarea
-                id="desc"
-                rows={2}
-                className="w-full rounded-md border border-input bg-background p-2.5 text-xs ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                placeholder="High-grade Hardlex crystal, functional sub-dials, water-sealed case."
-                value={formData.description}
-                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-              />
-            </div>
-
-            {/* Active Toggle */}
-            <div className="flex items-center space-x-2 pt-1">
-              <Switch
-                id="is_active"
-                checked={formData.is_active}
-                onCheckedChange={(checked) => setFormData({ ...formData, is_active: checked })}
-              />
-              <Label htmlFor="is_active" className="cursor-pointer text-xs">
-                Active in Catalog & Public Single Order Page
-              </Label>
-            </div>
-
-            <DialogFooter className="pt-4 border-t">
-              <Button type="button" variant="outline" onClick={() => setIsFormOpen(false)}>
-                Cancel
-              </Button>
-              <Button type="submit" disabled={isSubmitting}>
-                {isSubmitting ? 'Saving...' : editingProduct ? 'Save Changes' : 'Add Watch & Generate Landing Page'}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-
-      {/* Showcase Pitch Preview Dialog */}
-      <Dialog open={!!previewProduct} onOpenChange={() => setPreviewProduct(null)}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Sparkles className="h-5 w-5 text-amber-500" />
-              WhatsApp Pitch Preview
-            </DialogTitle>
-            <DialogDescription>
-              This is how the showcase message appears to the customer on WhatsApp (with direct order link).
-            </DialogDescription>
-          </DialogHeader>
-
-          {previewProduct && (
-            <div className="space-y-3">
-              <div className="rounded-xl border border-emerald-500/20 bg-emerald-950/20 dark:bg-emerald-950/40 p-4 text-xs font-mono whitespace-pre-wrap leading-relaxed text-foreground">
-                {formatShowcasePitch(previewProduct)}
+            {/* Projected Stock Diff Banner */}
+            {restockProduct && (
+              <div className="rounded-xl p-3 bg-muted/50 border border-border/60 flex items-center justify-between text-xs">
+                <span className="text-muted-foreground">স্টক পরিবর্তন:</span>
+                <div className="flex items-center gap-2 font-mono font-bold">
+                  <span className="text-muted-foreground">{restockProduct.stock_quantity ?? 0}</span>
+                  <span className="text-muted-foreground">➔</span>
+                  <span className={Number(restockQty) > (restockProduct.stock_quantity ?? 0) ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600'}>
+                    {Number(restockQty) || 0} pcs
+                  </span>
+                  <Badge variant="secondary" className="text-[10px] ml-1">
+                    {Number(restockQty) - (restockProduct.stock_quantity ?? 0) >= 0 ? '+' : ''}
+                    {Number(restockQty) - (restockProduct.stock_quantity ?? 0)}
+                  </Badge>
+                </div>
               </div>
+            )}
+          </div>
 
-              <div className="flex justify-end gap-2">
-                <Button variant="outline" size="sm" onClick={() => setPreviewProduct(null)}>
-                  Close
-                </Button>
-                <Button
-                  size="sm"
-                  onClick={() => {
-                    handleCopyShowcase(previewProduct);
-                    setPreviewProduct(null);
-                  }}
-                >
-                  <Copy className="h-4 w-4 mr-1.5" /> Copy Pitch
-                </Button>
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
-
-      {/* Delete Confirmation Dialog */}
-      <Dialog open={!!deleteId} onOpenChange={() => setDeleteId(null)}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle className="text-destructive flex items-center gap-2">
-              <Trash2 className="h-5 w-5" />
-              Delete Watch Model?
-            </DialogTitle>
-            <DialogDescription>
-              This watch and its public single landing page will be removed from your catalog. This action cannot be undone.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter className="gap-2">
-            <Button variant="outline" size="sm" onClick={() => setDeleteId(null)}>
-              Cancel
+          <DialogFooter className="gap-2 sm:gap-0 pt-2 border-t">
+            <Button variant="outline" size="sm" onClick={() => setRestockProduct(null)}>
+              বাতিল
             </Button>
-            <Button variant="destructive" size="sm" onClick={handleDeleteProduct}>
-              Yes, Delete
+            <Button size="sm" onClick={handleDirectRestock} disabled={isRestocking} className="font-semibold shadow-xs">
+              {isRestocking ? (
+                <>
+                  <RefreshCw className="h-3.5 w-3.5 animate-spin mr-1.5" />
+                  সংরক্ষণ হচ্ছে...
+                </>
+              ) : (
+                'স্টক আপডেট নিশ্চিত করুন'
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Product Create / Edit Modal (Ultra-Modern Tabbed & Responsive) */}
+      <ProductFormModal
+        open={isFormOpen}
+        onOpenChange={setIsFormOpen}
+        product={editingProduct}
+        onSuccess={fetchProducts}
+        business={business}
+        dynamicCategories={dynamicCategories}
+      />
+
+      {/* Showcase Pitch Preview Dialog (Modern WhatsApp UI & Mobile Responsive) */}
+      <Dialog open={!!previewProduct} onOpenChange={() => setPreviewProduct(null)}>
+        <DialogContent className="w-[95vw] sm:max-w-lg max-h-[88vh] flex flex-col p-0 overflow-hidden bg-background rounded-2xl border shadow-2xl">
+          <div className="bg-[#075e54] text-white p-3.5 flex items-center justify-between shrink-0 shadow-sm">
+            <div className="flex items-center gap-2.5">
+              <div className="w-9 h-9 rounded-full bg-white/20 flex items-center justify-center font-bold text-xs ring-2 ring-white/30">
+                {business?.store_name ? business.store_name.slice(0, 2).toUpperCase() : 'WA'}
+              </div>
+              <div>
+                <p className="font-semibold text-xs leading-none">
+                  {business?.store_name || 'WhatsApp Store'}
+                </p>
+                <div className="flex items-center gap-1.5 mt-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  <p className="text-[10px] text-white/80">অনলাইন • ক্যাটালগ শোকেস পিচ</p>
+                </div>
+              </div>
+            </div>
+            <Badge variant="outline" className="border-white/30 text-white text-[10px] bg-white/10">
+              কাস্টমার চ্যাট ভিউ
+            </Badge>
+          </div>
+
+          {previewProduct && (
+            <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-[#e5ddd5]/30 dark:bg-zinc-950">
+              <div className="relative bg-card dark:bg-emerald-950/40 border border-emerald-500/20 p-4 rounded-2xl rounded-tl-none text-xs font-mono whitespace-pre-wrap leading-relaxed shadow-sm">
+                {formatShowcasePitch(previewProduct)}
+                <div className="flex items-center justify-end gap-1 text-[10px] text-muted-foreground mt-2">
+                  <span>এখনই পাঠানো হয়েছে</span>
+                  <Check className="h-3 w-3 text-emerald-500 inline" />
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="p-3 bg-muted/40 border-t flex items-center justify-between gap-2 shrink-0">
+            <Button variant="ghost" size="sm" onClick={() => setPreviewProduct(null)} className="text-xs">
+              বন্ধ করুন
+            </Button>
+            <Button
+              size="sm"
+              className="gap-1.5 font-bold text-xs bg-[#25d366] hover:bg-[#20ba5a] text-black shadow-sm"
+              onClick={() => {
+                if (previewProduct) {
+                  handleCopyShowcase(previewProduct);
+                  setPreviewProduct(null);
+                }
+              }}
+            >
+              <Copy className="h-3.5 w-3.5" /> পিচ কপি করুন
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation Dialog (Ultra-Modern Warning) */}
+      <Dialog open={!!deleteId} onOpenChange={() => setDeleteId(null)}>
+        <DialogContent className="w-[95vw] sm:max-w-sm rounded-2xl p-6 border shadow-2xl bg-card">
+          <DialogHeader className="text-center sm:text-left space-y-3">
+            <div className="w-12 h-12 rounded-2xl bg-destructive/10 text-destructive flex items-center justify-center mx-auto sm:mx-0">
+              <Trash2 className="h-6 w-6" />
+            </div>
+            <div>
+              <DialogTitle className="text-base font-bold text-foreground">
+                প্রোডাক্টটি ডিলিট করতে চান?
+              </DialogTitle>
+              <DialogDescription className="text-xs text-muted-foreground mt-1.5 leading-normal">
+                এই পণ্যটি ক্যাটালগ এবং পাবলিক সিঙ্গেল ল্যান্ডিং পেজ থেকে চিরতরে মুছে যাবে। এই কাজটি পূর্বাবস্থায় ফেরানো সম্ভব নয়।
+              </DialogDescription>
+            </div>
+          </DialogHeader>
+          <DialogFooter className="gap-2 pt-3 flex-col sm:flex-row">
+            <Button variant="outline" size="sm" onClick={() => setDeleteId(null)} className="w-full sm:w-auto">
+              বাতিল
+            </Button>
+            <Button variant="destructive" size="sm" onClick={handleDeleteProduct} className="w-full sm:w-auto font-semibold">
+              হ্যাঁ, মুছে ফেলুন
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* AI Copywriter & Sales Pitch Dialog */}
+      <AiCopywriterDialog
+        product={aiCopyProduct}
+        open={isAiCopyOpen}
+        onOpenChange={setIsAiCopyOpen}
+        onApplyToDescription={(text) => {
+          navigator.clipboard.writeText(text);
+          toast.success('AI কপি ক্লিপবোর্ডে কপি করা হয়েছে! প্রোডাক্ট বিবরণীতে পেস্ট করতে পারেন।');
+        }}
+      />
+
+      {/* Barcode & Thermal Label Printer Modal */}
+      <BarcodeLabelModal
+        product={barcodeProduct}
+        open={isBarcodeModalOpen}
+        onOpenChange={setIsBarcodeModalOpen}
+        storeName={business?.store_name || 'Online Store'}
+      />
+
+      {/* Bulk CSV / Excel Import Modal */}
+      <CsvImportModal
+        open={isImportModalOpen}
+        onOpenChange={setIsImportModalOpen}
+        onImportSuccess={fetchProducts}
+      />
+
+      {/* Meta Commerce & WhatsApp Catalog Data Feed Modal */}
+      <MetaCatalogModal
+        open={isMetaModalOpen}
+        onOpenChange={setIsMetaModalOpen}
+        accountId={business?.account_id}
+      />
+
+      {/* Customer Reviews & Testimonials Modal */}
+      <ProductReviewsModal
+        product={reviewsProduct}
+        open={isReviewsModalOpen}
+        onOpenChange={setIsReviewsModalOpen}
+      />
+
+      {/* Product Bundles & Combos Modal */}
+      <ProductBundlesModal
+        open={isBundlesModalOpen}
+        onOpenChange={setIsBundlesModalOpen}
+        products={products}
+      />
+
+      {/* AI Inventory Demand Forecast Modal */}
+      <InventoryForecastModal
+        isOpen={isForecastModalOpen}
+        onClose={() => setIsForecastModalOpen(false)}
+        onQuickRestock={(p) => {
+          setIsForecastModalOpen(false);
+          const matched = products.find((prod) => prod.id === p.id);
+          if (matched) {
+            openHistoryDialog(matched);
+          }
+        }}
+      />
+
+      {/* Live Camera Barcode & QR Scanner Modal */}
+      <CameraBarcodeScannerModal
+        isOpen={isCameraScannerOpen}
+        onClose={() => setIsCameraScannerOpen(false)}
+        onScan={(barcode) => {
+          setSearch(barcode);
+          toast.success(`বারকোড স্ক্যান সফল: ${barcode}`);
+        }}
+        title="প্রোডাক্ট বারকোড স্ক্যানার"
+        description="ক্যামেরা বারকোডের দিকে তাক করুন, স্বয়ংক্রিয়ভাবে ফিল্টার হবে"
+      />
+
+      {/* Supplier & Purchase Orders Modal */}
+      <SupplierPoModal
+        open={isSupplierPoModalOpen}
+        onOpenChange={setIsSupplierPoModalOpen}
+        products={products}
+        onStockUpdated={fetchProducts}
+      />
+
+      {/* AI Dynamic Catalog Ad Studio Dialog */}
+      <CatalogAdStudioDialog
+        open={isAdStudioOpen}
+        onOpenChange={setIsAdStudioOpen}
+        product={adStudioProduct}
+      />
     </div>
   );
 }

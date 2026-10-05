@@ -82,7 +82,7 @@ export async function matchProductFromInbound(
   }
 
   // 5. Default fallback for standard ad template ("আমি এই প্রোডাক্টটি সম্পর্কে জানতে চাই")
-  if (!matchedProduct && (referral || /জানতে চাই|অর্ডার|দাম কত|নিতে চাই|অফার|প্রোডাক্ট|পণ্য|ঘড়ি/i.test(combinedSearchSource))) {
+  if (!matchedProduct && (referral || /জানতে চাই|অর্ডার|দাম কত|নিতে চাই|অফার|প্রোডাক্ট|পণ্য/i.test(combinedSearchSource))) {
     matchedProduct = products[0];
   }
 

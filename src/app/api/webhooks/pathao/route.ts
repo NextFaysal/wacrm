@@ -161,6 +161,20 @@ export async function POST(request: Request) {
             }
           }
         }
+      } else if (
+        eventName === 'order.delivery-failed' ||
+        eventName === 'order.on-hold' ||
+        eventName === 'order.rescheduled'
+      ) {
+        if (order.conversation_id) {
+          try {
+            await notifyCustomerCourierUpdate(admin, order, 'FAILED_DELIVERY', {
+              trackingCode: consignmentId || order.courier_tracking_code || undefined,
+            });
+          } catch (e) {
+            console.warn('[pathao-webhook] WhatsApp failed-delivery msg warning:', e);
+          }
+        }
       }
 
       await admin.from('orders').update(updates).eq('id', order.id);

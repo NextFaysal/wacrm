@@ -197,6 +197,9 @@ export interface Conversation {
   ai_followup_count?: number;
   referral_headline?: string | null;
   referral_source_url?: string | null;
+  channel?: 'whatsapp' | 'facebook' | 'instagram';
+  meta_psid?: string | null;
+  meta_page_id?: string | null;
 }
 
 // ============================================================

@@ -26,10 +26,11 @@ import {
   UserCog,
   Users,
   UsersRound,
-  Watch,
+  Package,
   Workflow,
   X,
   Zap,
+  Share2,
 } from "lucide-react";
 import {
   Tooltip,
@@ -103,7 +104,7 @@ interface NavItem {
 const navItems: NavItem[] = [
   { href: "/dashboard", labelKey: "dashboard", icon: LayoutDashboard },
   { href: "/inbox", labelKey: "inbox", icon: MessageSquare },
-  { href: "/products", labelKey: "products", icon: Watch },
+  { href: "/products", labelKey: "products", icon: Package },
   { href: "/orders", labelKey: "orders", icon: ShoppingBag },
   { href: "/analytics", labelKey: "analytics", icon: TrendingUp },
   { href: "/notifications", labelKey: "notifications", icon: Bell },
@@ -113,6 +114,8 @@ const navItems: NavItem[] = [
   { href: "/automations", labelKey: "automations", icon: Zap },
   { href: "/flows", labelKey: "flows", icon: Workflow, beta: true },
   { href: "/agents", labelKey: "aiAgents", icon: Bot },
+  { href: "/growth", labelKey: "growthIntelligence", icon: Zap },
+  { href: "/meta", labelKey: "metaManagement", icon: Share2 },
 ];
 
 const bottomNavItems = [

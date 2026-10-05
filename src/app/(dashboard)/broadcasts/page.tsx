@@ -13,11 +13,12 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { Radio, Plus, Loader2 } from 'lucide-react';
+import { Radio, Plus, Loader2, MessageSquare } from 'lucide-react';
 import { useCan } from '@/hooks/use-can';
 import { GatedButton } from '@/components/ui/gated-button';
 import { getBroadcastStatus } from '@/lib/broadcast-status';
 import { useTranslations } from 'next-intl';
+import { SmsCampaignManager } from '@/components/broadcasts/sms-campaign-manager';
 
 /**
  * Poll cadence while any broadcast is sending. Kept modest so we don't
@@ -65,6 +66,7 @@ export default function BroadcastsPage() {
   const [broadcasts, setBroadcasts] = useState<Broadcast[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [activeChannel, setActiveChannel] = useState<'whatsapp' | 'sms'>('whatsapp');
 
   // Used to kick off polling only while something is actively sending.
   const pollTimer = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -187,18 +189,50 @@ export default function BroadcastsPage() {
             {t('subtitle')}
           </p>
         </div>
-        <GatedButton
-          canAct={canCreate}
-          gateReason="create broadcasts"
-          onClick={() => router.push('/broadcasts/new')}
-          className="bg-primary text-primary-foreground hover:bg-primary/90"
-        >
-          <Plus className="h-4 w-4" />
-          {t('newBroadcast')}
-        </GatedButton>
+        {activeChannel === 'whatsapp' && (
+          <GatedButton
+            canAct={canCreate}
+            gateReason="create broadcasts"
+            onClick={() => router.push('/broadcasts/new')}
+            className="bg-primary text-primary-foreground hover:bg-primary/90"
+          >
+            <Plus className="h-4 w-4" />
+            {t('newBroadcast')}
+          </GatedButton>
+        )}
       </div>
 
-      {broadcasts.length === 0 ? (
+      {/* Multi-Channel Switcher Tabs */}
+      <div className="flex items-center gap-2 border-b border-border">
+        <button
+          type="button"
+          onClick={() => setActiveChannel('whatsapp')}
+          className={`flex items-center gap-2 px-4 py-2.5 text-sm font-semibold border-b-2 transition-all ${
+            activeChannel === 'whatsapp'
+              ? 'border-primary text-primary'
+              : 'border-transparent text-muted-foreground hover:text-foreground'
+          }`}
+        >
+          <Radio className="w-4 h-4" />
+          WhatsApp ব্রডকাস্ট (Meta Templates)
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveChannel('sms')}
+          className={`flex items-center gap-2 px-4 py-2.5 text-sm font-semibold border-b-2 transition-all ${
+            activeChannel === 'sms'
+              ? 'border-primary text-primary'
+              : 'border-transparent text-muted-foreground hover:text-foreground'
+          }`}
+        >
+          <MessageSquare className="w-4 h-4 text-emerald-500" />
+          স্মার্ট SMS মার্কেটিং ও ফ্ল্যাশ সেল
+        </button>
+      </div>
+
+      {activeChannel === 'sms' ? (
+        <SmsCampaignManager />
+      ) : broadcasts.length === 0 ? (
         <div className="flex h-64 flex-col items-center justify-center rounded-xl border border-border bg-card">
           <Radio className="mb-3 h-10 w-10 text-muted-foreground" />
           <p className="text-sm font-medium text-foreground">{t('noBroadcastsYet')}</p>

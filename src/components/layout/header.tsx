@@ -23,6 +23,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ModeToggle } from "@/components/layout/mode-toggle";
+import { StoreSwitcher } from "@/components/layout/store-switcher";
 
 const pageTitles: Record<string, string> = {
   "/dashboard": "dashboard",
@@ -124,6 +125,8 @@ export function Header({ onOpenSidebar, onOpenCommandPalette }: HeaderProps) {
         <h1 className="truncate text-sm font-semibold tracking-tight text-foreground sm:text-base">
           {t(titleKey as string)}
         </h1>
+        <div className="hidden sm:block h-4 w-px bg-border/80 mx-1" />
+        <StoreSwitcher />
       </div>
 
       <div className="flex items-center gap-1.5 sm:gap-3">

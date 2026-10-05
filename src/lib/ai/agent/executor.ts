@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { AiConfig } from '@/lib/ai/types';
-import type { ConversationMemory, ConversationState, AdReferralData } from '@/types/commerce';
+import type { ConversationMemory, ConversationState, AdReferralData, RiskCheckResult } from '@/types/commerce';
 import type { Product } from '@/types/watch';
 import { AI_COMMERCE_TOOLS, type ToolContext } from './tools';
 import { extractCustomerEntities, computeMissingOrderFields } from './extractor';
@@ -13,6 +13,10 @@ import { buildBanglaSalesPrompt } from './sales-prompt';
 import { runLlmAgentWithTools } from './llm-runner';
 import { buildConversationContext } from '@/lib/ai/context';
 import { matchFastStoreFaq } from './fast-faq';
+import { loadBusinessContext } from '../business-context';
+import { getHumanGreeting, getHumanObjectionResponse } from '../human-personality';
+import { loadAiPersonaConfig, buildPersonaSystemPromptAddition } from '@/lib/ai/persona-config';
+import { syncMemoryToContact } from './memory-sync';
 
 export interface ExecuteAgentArgs {
   db: SupabaseClient;
@@ -21,6 +25,7 @@ export interface ExecuteAgentArgs {
   contactId: string;
   configOwnerUserId: string;
   inboundText: string;
+  inboundMessageId?: string;
   referral?: AdReferralData | null;
   config: AiConfig;
 }
@@ -35,17 +40,36 @@ export interface AgentExecutionResult {
 export async function executeAiCommerceAgent(args: ExecuteAgentArgs): Promise<AgentExecutionResult> {
   const { db, accountId, conversationId, contactId, configOwnerUserId, inboundText, referral, config } = args;
 
-  // 1. Load Conversation State and Memory
-  const { data: conv, error: convErr } = await db
-    .from('conversations')
-    .select('id, ai_state, ai_memory, ai_autoreply_disabled, assigned_agent_id')
-    .eq('id', conversationId)
-    .maybeSingle();
+  // 1. Load Conversation State, Memory, Business Context, and AI Action Settings
+  const [convRes, bizCtx, actionSettingsRes, customActionsRes, personaConfig] = await Promise.all([
+    db
+      .from('conversations')
+      .select('id, ai_state, ai_memory, ai_autoreply_disabled, assigned_agent_id')
+      .eq('id', conversationId)
+      .maybeSingle(),
+    loadBusinessContext(accountId, db),
+    db.from('ai_action_settings').select('*').eq('account_id', accountId).maybeSingle(),
+    db.from('ai_custom_actions').select('*').eq('account_id', accountId).eq('is_active', true),
+    loadAiPersonaConfig(db, accountId),
+  ]);
+
+  const conv = convRes.data;
+  const convErr = convRes.error;
 
   if (convErr || !conv) return { handled: false };
   if (conv.ai_autoreply_disabled || conv.assigned_agent_id) {
     return { handled: false }; // Human agent owns this conversation
   }
+
+  const actionSettings = actionSettingsRes.data || {
+    auto_order_creation: true,
+    auto_courier_booking: false,
+    risk_engine: true,
+    auto_followup: true,
+    send_product_images: true,
+    voice_notes: true,
+  };
+  const customActions = customActionsRes.data || [];
 
   const currentState: ConversationState = (conv.ai_state as ConversationState) || 'NEW';
   let memory: ConversationMemory = (conv.ai_memory as ConversationMemory) || {};
@@ -93,6 +117,9 @@ export async function executeAiCommerceAgent(args: ExecuteAgentArgs): Promise<Ag
         ai_memory: memory,
       })
       .eq('id', conversationId);
+
+    // Sync persistent memory to customer contact profile
+    void syncMemoryToContact(db, contactId, memory, accountId);
   };
 
   // Helper to reply to customer with natural typing delay and multi-bubble splitting
@@ -115,6 +142,7 @@ export async function executeAiCommerceAgent(args: ExecuteAgentArgs): Promise<Ag
       text,
       phoneNumberId: phoneId,
       accessToken: token,
+      inboundMessageId: args.inboundMessageId,
     });
   };
 
@@ -127,12 +155,12 @@ export async function executeAiCommerceAgent(args: ExecuteAgentArgs): Promise<Ag
   // If customer provided a TrxID for advance payment
   if (extracted.trxId) {
     memory.last_customer_intent = 'ADVANCE_PAYMENT';
-    await logAudit('detect_advance_payment', { trxId: extracted.trxId, method: extracted.paymentMethod }, { success: true });
+    await logAudit('detect_advance_payment', { trxId: extracted.trxId, method: extracted.paymentMethod, amount: extracted.paymentAmount }, { success: true });
     try {
       const payRes: any = await AI_COMMERCE_TOOLS.record_advance_payment.handler(
         {
           trxId: extracted.trxId,
-          amount: 150, // standard advance delivery fee
+          amount: extracted.paymentAmount || bizCtx.advanceDeliveryFee || 150,
           method: extracted.paymentMethod || 'bKash',
           phone: memory.customer_phone || undefined,
           orderId: memory.order_id || undefined,
@@ -141,6 +169,9 @@ export async function executeAiCommerceAgent(args: ExecuteAgentArgs): Promise<Ag
       );
       if (payRes?.success) {
         await reply(payRes.message || 'আপনার অগ্রিম পেমেন্ট সফলভাবে ভেরিফাই করা হয়েছে! ধন্যবাদ 😊');
+        return { handled: true };
+      } else if (payRes?.error) {
+        await reply(payRes.error);
         return { handled: true };
       }
     } catch (e) {
@@ -232,16 +263,17 @@ export async function executeAiCommerceAgent(args: ExecuteAgentArgs): Promise<Ag
   }
 
   // ----------------------------------------------------
-  // Scenario B3: Customer asks for Catalog or other watch recommendations
+  // Scenario B3: Customer asks for Catalog or other recommendations
   // ----------------------------------------------------
   if (extracted.detectedIntent === 'RECOMMENDATION_INQUIRY') {
     const recRes = (await AI_COMMERCE_TOOLS.recommend_products.handler({}, toolCtx)) as any;
     if (recRes?.success && recRes.products?.length > 0) {
-      let recText = `জি ভাইয়া! আমাদের কাছে আরও কিছু চমৎকার প্রিমিয়াম ঘড়ি রয়েছে:\n\n`;
+      let recText = `জি! আমাদের কাছে আরও কিছু চমৎকার প্রিমিয়াম ${bizCtx.productNoun} রয়েছে:\n\n`;
       recRes.products.forEach((p: any, idx: number) => {
-        recText += `${idx + 1}. *${p.name}* — মাত্র ৳${p.price.toLocaleString('en-BD')}\n   (কালার: ${p.colors}, বেল্ট: ${p.strap})\n\n`;
+        const variantText = p.colors ? ` (ভেরিয়েন্ট: ${p.colors})` : '';
+        recText += `${idx + 1}. *${p.name}* — মাত্র ৳${p.price.toLocaleString('en-BD')}${variantText}\n`;
       });
-      recText += `আপনি কি লেদার বেল্ট নাকি মেটাল চেইন ওয়াচ বেশি পছন্দ করেন? জানাবেন, আপনার পছন্দের সেরা ঘড়িটি দেখিয়ে দিচ্ছি! 😊`;
+      recText += `\nআপনার পছন্দের প্রোডাক্টটি জানালে বিস্তারিত ও অফার প্রাইজ জানিয়ে দিচ্ছি! 😊`;
       await reply(recText);
       await logAudit('recommend_products', { text: inboundText }, recRes);
       return { handled: true };
@@ -254,12 +286,40 @@ export async function executeAiCommerceAgent(args: ExecuteAgentArgs): Promise<Ag
   // before running heavy LLMs or RAG loops.
   // ----------------------------------------------------
   if (!extracted.phone && !extracted.fullAddress) {
-    const fastFaq = matchFastStoreFaq(inboundText, 'Watch Gallery BD');
+    const fastFaq = matchFastStoreFaq(inboundText, bizCtx);
     if (fastFaq.matched && fastFaq.replyText) {
       await reply(fastFaq.replyText);
       await logAudit('fast_faq_match', { text: inboundText, intent: fastFaq.intent }, { success: true });
       return { handled: true };
     }
+  }
+
+  // ----------------------------------------------------
+  // Scenario B4: Standalone Greeting (Hi, Hello, Salam)
+  // ----------------------------------------------------
+  if (/^(hi|hello|hey|salam|assalamu\s*alaikum|assalamualaikum|হ্যাল+ও|হাই|সালাম|আসসালামু\s*আলাইকুম)[.!?\s]*$/i.test(inboundText.trim())) {
+    const greeting = getHumanGreeting({
+      customerName: memory.customer_name,
+      isReturning: Boolean(memory.order_id),
+    });
+    await reply(greeting);
+    return { handled: true };
+  }
+
+  // ----------------------------------------------------
+  // Scenario B5: Shop Location / Showroom Inquiry
+  // ----------------------------------------------------
+  if (/দোকান কোথায়|শো-রুম|শোরুম|লোকেশন|ঠিকানা কোথায়|dokan kothay|location kothay|showroom|outlet/i.test(inboundText) && !extracted.phone && !extracted.fullAddress) {
+    await reply(getHumanObjectionResponse('SHOP_LOCATION', bizCtx.storeName));
+    return { handled: true };
+  }
+
+  // ----------------------------------------------------
+  // Scenario B6: Bargaining / Discount Request
+  // ----------------------------------------------------
+  if (/কম রাখা যাবে|ডিসকাউন্ট হবে|কম হবে|বেশি দাম|দাম বেশি|একটু কমান|discount|dam kom|kom koren/i.test(inboundText)) {
+    await reply(getHumanObjectionResponse('BARGAIN', bizCtx.storeName));
+    return { handled: true };
   }
 
   // ----------------------------------------------------
@@ -280,8 +340,8 @@ export async function executeAiCommerceAgent(args: ExecuteAgentArgs): Promise<Ag
 
       await AI_COMMERCE_TOOLS.apply_tag.handler({ tagName: 'PRODUCT_INQUIRY' }, toolCtx);
 
-      // Send variant photos if available
-      if (match.colorImages.length > 0) {
+      // Send variant photos if available and enabled
+      if (match.colorImages.length > 0 && actionSettings.send_product_images) {
         await AI_COMMERCE_TOOLS.send_product_images.handler(
           {
             productId: match.product.id,
@@ -296,15 +356,17 @@ export async function executeAiCommerceAgent(args: ExecuteAgentArgs): Promise<Ag
         await reply(match.initialPitchText);
       }
 
-      // Schedule automated follow-up in 60 minutes if customer leaves it unreplied
-      await AI_COMMERCE_TOOLS.schedule_followup.handler(
-        {
-          minutesDelay: 60,
-          productId: match.product.id,
-          prompt: 'Customer viewed initial offer. Ask if they prefer Black or Silver color.',
-        },
-        toolCtx
-      );
+      // Schedule automated follow-up in 60 minutes if enabled
+      if (actionSettings.auto_followup) {
+        await AI_COMMERCE_TOOLS.schedule_followup.handler(
+          {
+            minutesDelay: 60,
+            productId: match.product.id,
+            prompt: `Customer viewed initial offer for ${match.product.name}. Ask politely about preferred variant/size/color or if they need any details.`,
+          },
+          toolCtx
+        );
+      }
 
       await logAudit('match_product_and_send_offer', { text: inboundText }, { productId: match.product.id });
       return { handled: true, nextState: 'PRODUCT_INFORMATION_SENT' };
@@ -383,7 +445,7 @@ export async function executeAiCommerceAgent(args: ExecuteAgentArgs): Promise<Ag
 
       // 5. Construct high-converting Bengali sales agent persona prompt
       const systemPrompt = buildBanglaSalesPrompt({
-        storeName,
+        storeName: bizCtx.storeName || storeName,
         customerName: memory.customer_name || null,
         customerPhone: memory.customer_phone || null,
         isReturningCustomer: Boolean(memory.order_id),
@@ -391,16 +453,90 @@ export async function executeAiCommerceAgent(args: ExecuteAgentArgs): Promise<Ag
         currentProduct,
         currentState,
         memory,
-        deliveryBanner: deliverySettings?.free_delivery_banner_text || null,
+        deliveryBanner: deliverySettings?.free_delivery_banner_text || bizCtx.freeDeliveryBanner || null,
         customSystemPrompt: config.systemPrompt || null,
+        context: bizCtx,
+        personaPrompt: buildPersonaSystemPromptAddition(personaConfig),
       });
 
-      // 5. Execute LLM with full tools loop
+      // 5. Prepare dynamic tools with action toggles & custom tools
+      const dynamicTools: any = { ...AI_COMMERCE_TOOLS };
+      if (!actionSettings.send_product_images) {
+        delete dynamicTools.send_product_images;
+      }
+      if (!actionSettings.auto_order_creation) {
+        delete dynamicTools.create_order;
+      }
+      if (!actionSettings.auto_courier_booking) {
+        delete dynamicTools.book_courier;
+      }
+
+      // Add custom user-defined actions
+      for (const ca of customActions) {
+        dynamicTools[ca.name] = {
+          name: ca.name,
+          description: ca.description,
+          parameters: { type: 'object', properties: {} },
+          handler: async (_callArgs: any, _ctx: any) => {
+            if (ca.action_type === 'fixed_reply') {
+              const msg = ca.config?.message || '';
+              if (msg) await reply(msg);
+              return { success: true, sent_message: msg };
+            } else if (ca.action_type === 'instant_coupon') {
+              const prefix = ca.config?.coupon_prefix || 'SPECIAL';
+              const amount = Number(ca.config?.discount_amount) || 100;
+              const code = `${prefix}${Math.floor(1000 + Math.random() * 9000)}`;
+              await db.from('coupons').insert({
+                account_id: accountId,
+                code,
+                discount_type: 'fixed',
+                discount_value: amount,
+                min_order_amount: 0,
+                usage_limit: 1,
+                is_active: true,
+              });
+              const msg = ca.config?.message
+                ? ca.config.message.replace('{CODE}', code)
+                : `আপনার জন্য বিশেষ ছাড়ের কুপন কোড: ${code} (৳${amount} ছাড়)!`;
+              await reply(msg);
+              return { success: true, coupon_code: code, discount_amount: amount };
+            } else if (ca.action_type === 'notify_owner') {
+              const phone = ca.config?.owner_phone;
+              const title = ca.config?.alert_title || 'AI Manager Alert';
+              return { success: true, alerted_phone: phone, alert_title: title };
+            } else if (ca.action_type === 'webhook') {
+              const url = ca.config?.webhook_url;
+              if (url) {
+                try {
+                  await fetch(url, {
+                    method: ca.config?.webhook_method || 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      account_id: accountId,
+                      conversation_id: conversationId,
+                      customer_phone: memory.customer_phone,
+                      customer_name: memory.customer_name,
+                      action: ca.name,
+                      timestamp: new Date().toISOString(),
+                    }),
+                  });
+                } catch (e) {
+                  console.warn('[custom-action] Webhook error:', e);
+                }
+              }
+              return { success: true, triggered_webhook: url };
+            }
+            return { success: true };
+          },
+        };
+      }
+
+      // Execute LLM with full tools loop
       const llmResult = await runLlmAgentWithTools({
         config,
         systemPrompt,
         messages: history,
-        tools: AI_COMMERCE_TOOLS,
+        tools: dynamicTools,
         toolContext: toolCtx,
         maxTurns: 5,
       });
@@ -456,43 +592,69 @@ export async function executeAiCommerceAgent(args: ExecuteAgentArgs): Promise<Ag
     // ----------------------------------------------------
     await transition('RISK_CHECK', memory);
 
-    // Calculate customer risk
-    const risk = await calculateCustomerRisk(db, accountId, memory.customer_phone!);
-    memory.risk_result = risk;
-    await logAudit('calculate_customer_risk', { phone: memory.customer_phone }, risk);
+    // Calculate customer risk if enabled
+    let risk: RiskCheckResult = {
+      riskLevel: 'LOW',
+      totalOrders: 0,
+      deliveredOrders: 0,
+      cancelledOrders: 0,
+      cancellationRate: 0,
+      requiresHumanApproval: false,
+      reasons: [],
+    };
+    if (actionSettings.risk_engine) {
+      risk = await calculateCustomerRisk(db, accountId, memory.customer_phone!);
+      memory.risk_result = risk;
+      await logAudit('calculate_customer_risk', { phone: memory.customer_phone }, risk);
 
-    // High Risk Decision: Pause and hand off to human agent
-    if (risk.requiresHumanApproval) {
-      await AI_COMMERCE_TOOLS.apply_tag.handler({ tagName: 'HIGH_RISK_CUSTOMER' }, toolCtx);
-      await AI_COMMERCE_TOOLS.apply_tag.handler({ tagName: 'HUMAN_HANDOFF' }, toolCtx);
+      // High Risk Decision: Pause and hand off to human agent
+      if (risk.requiresHumanApproval) {
+        await AI_COMMERCE_TOOLS.apply_tag.handler({ tagName: 'HIGH_RISK_CUSTOMER' }, toolCtx);
+        await AI_COMMERCE_TOOLS.apply_tag.handler({ tagName: 'HUMAN_HANDOFF' }, toolCtx);
 
-      const summary =
-        `⚠️ HIGH RISK CUSTOMER DETECTED\n` +
-        `Customer: ${memory.customer_name || 'N/A'}\n` +
-        `Phone: ${memory.customer_phone}\n` +
-        `Product: ${currentProduct?.name || memory.interested_product_name}\n` +
-        `Color: ${memory.selected_variant || 'Default'}\n` +
-        `Address: ${memory.full_address}\n` +
-        `Reasons: ${risk.reasons.join('; ')}\n` +
-        `Cancellation Rate: ${risk.cancellationRate}%\n` +
-        `Steadfast Ratio: ${risk.steadfastDeliveryRatio ?? 'N/A'}%`;
+        const summary =
+          `⚠️ HIGH RISK CUSTOMER DETECTED\n` +
+          `Customer: ${memory.customer_name || 'N/A'}\n` +
+          `Phone: ${memory.customer_phone}\n` +
+          `Product: ${currentProduct?.name || memory.interested_product_name}\n` +
+          `Color: ${memory.selected_variant || 'Default'}\n` +
+          `Address: ${memory.full_address}\n` +
+          `Reasons: ${risk.reasons.join('; ')}\n` +
+          `Cancellation Rate: ${risk.cancellationRate}%\n` +
+          `Steadfast Ratio: ${risk.steadfastDeliveryRatio ?? 'N/A'}%`;
 
+        await AI_COMMERCE_TOOLS.handoff_to_human.handler(
+          {
+            reason: 'High cancellation/return risk requires manual human approval',
+            summary,
+          },
+          toolCtx
+        );
+
+        await transition('WAITING_FOR_HUMAN_APPROVAL', memory);
+
+        // Customer-facing message
+        await reply('আপনার অর্ডারটি কনফার্ম করার আগে আমাদের একজন প্রতিনিধি আপনার সাথে কথা বলবেন। একটু অপেক্ষা করুন। 😊');
+        return { handled: true, nextState: 'WAITING_FOR_HUMAN_APPROVAL', handedOff: true };
+      }
+    }
+
+    // Check if auto order creation is enabled
+    if (!actionSettings.auto_order_creation) {
+      await AI_COMMERCE_TOOLS.apply_tag.handler({ tagName: 'ORDER_INFO_COLLECTED' }, toolCtx);
       await AI_COMMERCE_TOOLS.handoff_to_human.handler(
         {
-          reason: 'High cancellation/return risk requires manual human approval',
-          summary,
+          reason: 'Customer placed order information, waiting for human confirmation (Auto Order Creation is disabled)',
+          summary: `Customer: ${memory.customer_name} | Phone: ${memory.customer_phone} | Address: ${memory.full_address}`,
         },
         toolCtx
       );
-
       await transition('WAITING_FOR_HUMAN_APPROVAL', memory);
-
-      // Customer-facing message
-      await reply('আপনার অর্ডারটি কনফার্ম করার আগে আমাদের একজন প্রতিনিধি আপনার সাথে কথা বলবেন। একটু অপেক্ষা করুন। 😊');
+      await reply('ধন্যবাদ! আপনার অর্ডারের সকল তথ্য গ্রহণ করা হয়েছে। আমাদের প্রতিনিধি দ্রুত আপনার সাথে যোগাযোগ করে অর্ডারটি কনফার্ম করে দেবেন। 😊');
       return { handled: true, nextState: 'WAITING_FOR_HUMAN_APPROVAL', handedOff: true };
     }
 
-    // Low / Medium Risk: Proceed to create order
+    // Low / Medium Risk & Auto-Order Enabled: Proceed to create order
     await transition('ORDER_CREATING', memory);
 
     const orderResult = (await AI_COMMERCE_TOOLS.create_order.handler(
@@ -524,22 +686,24 @@ export async function executeAiCommerceAgent(args: ExecuteAgentArgs): Promise<Ag
     await AI_COMMERCE_TOOLS.apply_tag.handler({ tagName: 'ORDER_CREATED' }, toolCtx);
     await AI_COMMERCE_TOOLS.apply_tag.handler({ tagName: 'ORDER_CONFIRMED' }, toolCtx);
 
-    // Book courier automatically if safe
+    // Book courier automatically only if auto_courier_booking is enabled
     let courierInfo: any = null;
-    try {
-      const courierResult = (await AI_COMMERCE_TOOLS.book_courier.handler(
-        { orderId: orderResult.orderId, preferredProvider: 'steadfast' },
-        toolCtx
-      )) as any;
-      if (courierResult?.success) {
-        courierInfo = courierResult;
-        memory.courier_tracking = courierResult.trackingCode;
-        memory.courier_consignment_id = courierResult.consignmentId;
-        await AI_COMMERCE_TOOLS.apply_tag.handler({ tagName: 'COURIER_BOOKED' }, toolCtx);
-        await logAudit('book_courier', { orderId: orderResult.orderId }, courierResult);
+    if (actionSettings.auto_courier_booking) {
+      try {
+        const courierResult = (await AI_COMMERCE_TOOLS.book_courier.handler(
+          { orderId: orderResult.orderId, preferredProvider: 'steadfast' },
+          toolCtx
+        )) as any;
+        if (courierResult?.success) {
+          courierInfo = courierResult;
+          memory.courier_tracking = courierResult.trackingCode;
+          memory.courier_consignment_id = courierResult.consignmentId;
+          await AI_COMMERCE_TOOLS.apply_tag.handler({ tagName: 'COURIER_BOOKED' }, toolCtx);
+          await logAudit('book_courier', { orderId: orderResult.orderId }, courierResult);
+        }
+      } catch (e) {
+        console.warn('[executor] Courier booking auto-call error (will continue):', e);
       }
-    } catch (e) {
-      console.warn('[executor] Courier booking auto-call error (will continue):', e);
     }
 
     await transition('ORDER_CREATED', memory);
@@ -549,19 +713,19 @@ export async function executeAiCommerceAgent(args: ExecuteAgentArgs): Promise<Ag
       ? `\n🚚 কুরিয়ার ট্র্যাকিং কোড: *${courierInfo.trackingCode}*`
       : '';
 
-    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://watchgallerybd.com';
+    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || '';
     const invoiceUrl = orderResult.invoiceNo ? `\n🧾 ডিজিটাল ক্যাশ মেমো: ${siteUrl}/invoice/${orderResult.invoiceNo}` : '';
 
     const confirmMsg =
-      `✅ *আপনার অর্ডারটি কনফার্ম করা হয়েছে আশা করি দ্রুত সমায় এর মধ্যে পেয়ে যাবেন আমাদের সাথে থাকার জন্য ধন্যবাদ।*\n\n` +
+      `✅ *আপনার অর্ডারটি কনফার্ম করা হয়েছে আশা করি দ্রুত সময়ের মধ্যে পেয়ে যাবেন আমাদের সাথে থাকার জন্য ধন্যবাদ।*\n\n` +
       `📦 প্রোডাক্ট: *${orderResult.productName}*\n` +
-      `🎨 কালার: *${orderResult.variant || 'Standard'}*\n` +
+      `🎨 ভ্যারিয়েন্ট: *${orderResult.variant || 'Standard'}*\n` +
       `🔢 পরিমাণ: *${orderResult.quantity}টি*\n` +
       `💰 সর্বমোট মূল্য: *৳${orderResult.totalAmount.toLocaleString('en-BD')}* (ক্যাশ অন ডেলিভারি)\n` +
       `📍 ডেলিভারি ঠিকানা: ${orderResult.customerName}, ${memory.full_address}\n` +
-      `🚚 ডেলিভারি সময়: ঢাকার ভিতরে ২৪ থেকে ৪৮ ঘন্টা, ঢাকার বাহিরে ৪৮ থেকে ৭২ ঘন্টা।\n` +
+      `🚚 ডেলিভারি সময়: ঢাকার ভিতরে ${bizCtx.deliveryInsideDhaka}, ঢাকার বাহিরে ${bizCtx.deliveryOutsideDhaka}।\n` +
       `${trackingMsg}${invoiceUrl}\n\n` +
-      `পার্সেল রিসিভ করার আগে ঘড়িটি চেক করে নেওয়ার সুযোগ রয়েছে। ধন্যবাদ আমাদের সাথে থাকার জন্য! 😊`;
+      `পার্সেল রিসিভ করার সময় ${bizCtx.productNoun}টি চেক করে নেওয়ার সুযোগ রয়েছে। ধন্যবাদ আমাদের সাথে থাকার জন্য! 😊`;
 
     await reply(confirmMsg);
     return { handled: true, nextState: 'ORDER_CREATED' };
@@ -574,40 +738,45 @@ export async function executeAiCommerceAgent(args: ExecuteAgentArgs): Promise<Ag
     const q = inboundText.toLowerCase();
 
     if (/waterproof|পানি লাগলে|water resistant|পানি নিরোধক/i.test(q)) {
-      await reply('Water resistant (ওয়াটার রেজিস্ট্যান্ট) মানে হলো এমন ঘড়ি যা কিছুটা পানি প্রতিরোধ করতে পারে, তবে পুরোপুরি পানি নিরোধক বা waterproof নয়।');
-      return { handled: true };
+      if (currentProduct.water_resistance) {
+        await reply(`এটির স্পেসিফিকেশন হলো ${currentProduct.water_resistance}। কিছুটা পানি প্রতিরোধ করতে পারে (হালকা পানিতে সমস্যা হবে না)। 🛡️`);
+        return { handled: true };
+      }
     }
 
     if (/warranty|ওয়ারেন্টি|গ্যারান্টি|কতদিন|মেশিন|কালার/i.test(q)) {
-      await reply('এক বছরে মেশিন এবং কালারের ওয়ারেন্টি থাকবে (তবে আমাদের ঘড়িগুলো নরমালে দুই তিন বছরে কিছু হয় না ) 😊');
+      const warrantyMonths = currentProduct.warranty_months ? `${currentProduct.warranty_months} মাসের অফিশিয়াল ওয়ারেন্টি` : bizCtx.warrantyPolicy;
+      await reply(`${warrantyMonths} থাকবে এবং পার্সেল রিসিভ করার সময় চেক করে নেওয়ার সুযোগ রয়েছে। 😊`);
       return { handled: true };
     }
 
     if (/delivery|ডেলিভারি|কবে পাব|কতদিন|সময় লাগ/i.test(q)) {
-      await reply('আমাদের ডেলিভারি সাধারণত ঢাকার ভিতরে ২৪ থেকে ৪৮ ঘন্টা ঢাকার বাহিরে ৪৮ থেকে ৭২ ঘন্টা মতো সময় লাগতে পারে।');
+      await reply(`আমাদের ডেলিভারি সাধারণত ঢাকার ভিতরে ${bizCtx.deliveryInsideDhaka} এবং ঢাকার বাহিরে ${bizCtx.deliveryOutsideDhaka} সময় লাগতে পারে। 🚚`);
       return { handled: true };
     }
 
-    if (/battery|ব্যাটারি|ব্যাটারী/i.test(q)) {
-      await reply(`ঘড়িটিতে হাই কোয়ালিটি লং লাস্টিং ব্যাটারি দেওয়া আছে এবং আমরা ফ্রি গিফট হিসেবে ১টি অতিরিক্ত ব্যাটারি দিচ্ছি! 🎁`);
+    if (/battery|ব্যাটারি|ব্যাটারী|ব্যাকআপ/i.test(q)) {
+      if (bizCtx.businessType === 'watches' || bizCtx.businessType === 'electronics') {
+        await reply('এটিতে হাই কোয়ালিটি লং লাস্টিং ব্যাটারি দেওয়া আছে যা দীর্ঘস্থায়ী ব্যাকআপ দেয়। 🔋');
+        return { handled: true };
+      }
+    }
+
+    if (/strap|চেইন|বেল্ট|material|ম্যাটেরিয়াল|ফেব্রিক/i.test(q)) {
+      const material = currentProduct.strap_type || currentProduct.movement || 'উন্নত মানের প্রিমিয়াম উপাদান';
+      await reply(`এটির উপাদান/ম্যাটেরিয়াল হলো: ${material}। গুণগত মান অত্যন্ত আরামদায়ক ও টেকসই। ✨`);
       return { handled: true };
     }
 
-    if (/strap|চেইন|বেল্ট|material/i.test(q)) {
-      const strap = currentProduct.strap_type || 'Genuine Leather';
-      await reply(`এটির স্ট্র্যাপ ম্যাটেরিয়াল হলো প্রিমিয়াম ${strap}। পড়তে অত্যন্ত আরামদায়ক ও টেকসই।`);
+    if (/dial|সাইজ|size|ডায়াল/i.test(q)) {
+      const size = currentProduct.dial_size || 'স্ট্যান্ডার্ড সাইজ';
+      await reply(`এটির সাইজ/পরিমাপ হলো: ${size}। ব্যবহার করতে অত্যন্ত চমৎকার ও মানানসই লুক দেয়। ✨`);
       return { handled: true };
     }
 
-    if (/dial|সাইজ|size/i.test(q)) {
-      const dial = currentProduct.dial_size || '42mm';
-      await reply(`ঘড়িটির ডায়াল সাইজ হলো ${dial}। পুরুষদের হাতে খুব সুন্দর মানানসই প্রিমিয়াম লুক দেয়। ✨`);
-      return { handled: true };
-    }
-
-    if (/color|কালার|রং/i.test(q)) {
-      const colors = currentProduct.colors?.join(', ') || 'Black, Silver';
-      await reply(`এই মডেলটি বর্তমানে *${colors}* কালারে available আছে। আপনি কোনটি নিতে চান? 😊`);
+    if (/color|কালার|রং|variant|ভেরিয়েন্ট/i.test(q)) {
+      const colors = currentProduct.colors?.length ? currentProduct.colors.join(', ') : 'স্ট্যান্ডার্ড';
+      await reply(`এই মডেলটি বর্তমানে *${colors}* অপশনে available আছে। আপনি কোনটি নিতে চান? 😊`);
       return { handled: true };
     }
   }

@@ -122,6 +122,26 @@ export function AiPlayground({ onGoToSetup }: { onGoToSetup?: () => void }) {
                 {t('goToSetup')} <ArrowRight className="ml-1 h-3 w-3" />
               </Button>
             )}
+
+            {/* Quick Test Prompt Chips */}
+            <div className="mt-4 flex flex-wrap gap-1.5 justify-center max-w-md">
+              {[
+                'দাম কত? কিছু কমানো যাবে?',
+                'ডেলিভারি চার্জ কত এবং সময় কতদিন লাগবে?',
+                'অরিজিনাল তো? পার্সেল খুলে চেক করা যাবে?',
+                'দোকান বা শোরুম কোথায় আপনাদের?',
+                'আমার নাম রিয়াদ, মিরপুর ২ ঢাকা, ০১৭১১০০০০০০, ১টি অর্ডার করব',
+              ].map((chip) => (
+                <button
+                  key={chip}
+                  type="button"
+                  onClick={() => setInput(chip)}
+                  className="text-xs bg-muted hover:bg-primary/10 hover:text-primary text-muted-foreground border border-border px-2.5 py-1 rounded-full transition-colors"
+                >
+                  {chip}
+                </button>
+              ))}
+            </div>
           </div>
         )}
 

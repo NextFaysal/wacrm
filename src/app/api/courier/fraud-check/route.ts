@@ -1,15 +1,15 @@
 import { NextResponse } from 'next/server';
 import { requireRole, toErrorResponse } from '@/lib/auth/account';
-import { checkSteadfastFraudScore, formatBDPhone } from '@/lib/courier/dispatch';
-import type { CourierConfig } from '@/lib/courier/types';
+import { formatBDPhone } from '@/lib/courier/dispatch';
+import { scanCustomerRiskProfile } from '@/lib/courier/fraud-shield';
 
 /**
  * GET /api/courier/fraud-check?phone=01XXXXXXXXX
- * Checks customer delivery history and fraud score using Steadfast Courier API.
+ * Checks customer delivery history, return rate, and fraud score across couriers and CRM history.
  */
 export async function GET(request: Request) {
   try {
-    const { supabase, accountId } = await requireRole('viewer');
+    const { accountId } = await requireRole('viewer');
     const { searchParams } = new URL(request.url);
     const phone = searchParams.get('phone');
 
@@ -28,30 +28,25 @@ export async function GET(request: Request) {
       );
     }
 
-    // Get Steadfast credentials for this account
-    const { data: config, error: configError } = await supabase
-      .from('courier_configs')
-      .select('*')
-      .eq('account_id', accountId)
-      .eq('provider', 'steadfast')
-      .eq('is_active', true)
-      .single();
+    const profile = await scanCustomerRiskProfile(accountId, cleanPhone);
 
-    if (configError || !config) {
-      return NextResponse.json(
-        { error: 'Steadfast Courier is not configured or active for this account' },
-        { status: 400 }
-      );
-    }
-
-    const result = await checkSteadfastFraudScore(config as CourierConfig, cleanPhone);
+    // Shape response so it satisfies existing FraudCheckResult consumers and adds profile data
+    const legacyFraudCheck = {
+      phone: cleanPhone,
+      score: profile.trustScore,
+      level: profile.riskLevel === 'TRUSTED' ? 'trusted' : profile.riskLevel === 'MODERATE' ? 'caution' : 'danger',
+      reasons: profile.courierReports.length > 0 ? profile.courierReports : [profile.recommendationBangla],
+      total_reports: profile.cancelledOrReturned,
+      doubtful_reports: profile.riskLevel === 'HIGH_RISK',
+      profile,
+    };
 
     return NextResponse.json({
       success: true,
-      fraud_check: result,
+      fraud_check: legacyFraudCheck,
+      profile,
     });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Fraud check failed';
-    return NextResponse.json({ error: message }, { status: 500 });
+    return toErrorResponse(err);
   }
 }

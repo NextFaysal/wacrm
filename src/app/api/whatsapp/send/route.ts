@@ -11,6 +11,7 @@ import {
   validateSendMessageParams,
   SendMessageError,
 } from '@/lib/whatsapp/send-message'
+import { sendMetaMessage } from '@/lib/meta/graph-api'
 
 // The dashboard's outbound-send endpoint. It owns auth, per-user rate
 // limiting, and the two ways the UI targets a thread — an existing
@@ -146,6 +147,77 @@ export async function POST(request: Request) {
         { error: 'Conversation not found' },
         { status: 404 }
       )
+    }
+
+    // Check if this is a Facebook Messenger or Instagram Direct conversation
+    const { data: convData } = await supabase
+      .from('conversations')
+      .select('id, channel, meta_psid, meta_page_id')
+      .eq('id', conversationId)
+      .single()
+
+    if (convData?.channel === 'facebook' || convData?.channel === 'instagram') {
+      const { data: metaConfig } = await supabase
+        .from('meta_integrations')
+        .select('page_access_token')
+        .eq('account_id', accountId)
+        .single()
+
+      if (!metaConfig?.page_access_token) {
+        return NextResponse.json(
+          { error: 'Meta Page Access Token is not configured' },
+          { status: 400 }
+        )
+      }
+
+      if (!convData.meta_psid) {
+        return NextResponse.json(
+          { error: 'Customer Meta ID (PSID) is missing for this conversation' },
+          { status: 400 }
+        )
+      }
+
+      try {
+        const metaSend = await sendMetaMessage({
+          accessToken: metaConfig.page_access_token,
+          recipientId: convData.meta_psid,
+          messageText: content_text || '[Attachment]',
+        })
+
+        const { data: insertedMsg } = await supabase
+          .from('messages')
+          .insert({
+            conversation_id: conversationId,
+            sender_type: 'agent',
+            sender_id: userId,
+            content_type: 'text',
+            content_text: content_text || '[Attachment]',
+            message_id: metaSend.message_id,
+            status: 'sent',
+          })
+          .select()
+          .single()
+
+        await supabase
+          .from('conversations')
+          .update({
+            last_message_text: content_text || '[Attachment]',
+            last_message_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', conversationId)
+
+        return NextResponse.json({
+          success: true,
+          message_id: insertedMsg?.id || metaSend.message_id,
+          whatsapp_message_id: metaSend.message_id,
+        })
+      } catch (metaErr: any) {
+        return NextResponse.json(
+          { error: metaErr.message || 'Failed to send Meta message' },
+          { status: 502 }
+        )
+      }
     }
 
     // Delegate to the shared send core (validates, sends to Meta with

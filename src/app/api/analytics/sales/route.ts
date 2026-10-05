@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { requireRole, toErrorResponse } from '@/lib/auth/account';
 import { subDays, format, startOfDay } from 'date-fns';
+import { calculateBatchProfitability } from '@/lib/analytics/profit-engine';
 
 export async function GET(request: Request) {
   try {
@@ -128,7 +129,7 @@ export async function GET(request: Request) {
       }
 
       // Top selling products accumulation
-      const prodKey = ord.product_name || 'Watch';
+      const prodKey = ord.product_name || 'Product';
       if (isCountableSale) {
         const existing = productSalesMap.get(prodKey) || {
           id: ord.product_id || '',
@@ -190,6 +191,25 @@ export async function GET(request: Request) {
       { name: 'Cancelled (বাতিল)', count: cancelledCount, color: '#6B7280' },
     ];
 
+    // Calculate comprehensive unit economics via profit engine
+    const batchOrders = orderList.map((ord: any) => {
+      const prodMeta = ord.product_id ? productMap.get(ord.product_id) : null;
+      const unitPrice = Number(ord.unit_price) || 0;
+      const qty = Number(ord.quantity) || 1;
+      const unitCost = prodMeta?.costPrice ?? Math.round(unitPrice * 0.55);
+      return {
+        sellingPrice: Number(ord.total_amount) || 0,
+        cogs: unitCost * qty,
+        customerDeliveryFee: Number(ord.delivery_charge) || 0,
+        courierDeliveryCost: 100,
+        status: ord.status,
+      };
+    });
+
+    const batchEconomics = calculateBatchProfitability(batchOrders, {
+      packagingCostDefault: 20,
+    });
+
     return NextResponse.json({
       summary: {
         totalOrders: orderList.length,
@@ -207,6 +227,15 @@ export async function GET(request: Request) {
         pendingCount,
         deliverySuccessRatio,
         returnRatePct,
+        trueNetProfit: batchEconomics.totalNetProfit,
+        trueNetMarginPct: batchEconomics.overallMarginPercent,
+        totalExpenses: batchEconomics.totalExpenses,
+      },
+      unitEconomics: {
+        totalNetProfit: batchEconomics.totalNetProfit,
+        totalExpenses: batchEconomics.totalExpenses,
+        overallMarginPercent: batchEconomics.overallMarginPercent,
+        averageProfitPerOrder: batchEconomics.averageProfitPerOrder,
       },
       topProducts,
       dailyTrend,

@@ -42,7 +42,9 @@
     "defaultAvatar": "Avatar",
     "menuProfile": "Perfil",
     "menuSettings": "Configurações",
-    "menuSignOut": "Sair"
+    "menuSignOut": "Sair",
+    "metaManagement": "Meta (FB & IG)",
+    "growthIntelligence": "IA de Crescimento e Marketing"
   },
   "Header": {
     "dashboard": "Painel",
@@ -1684,7 +1686,17 @@
       "fields": "Campos e tags",
       "deals": "Negócios e moeda",
       "members": "Membros da equipe",
-      "api": "Chaves de API"
+      "delivery": "Entrega e Frete",
+      "courier": "API de Correios",
+      "store": "Loja e CMS",
+      "coupons": "Cupons e Descontos",
+      "reviews": "Avaliações de Clientes",
+      "ai-actions": "Ações de IA",
+      "followups": "Acompanhamentos e Recuperação",
+      "api": "Chaves de API",
+      "loyalty": "Fidelidade e Recompensas",
+      "payments": "Gateways de Pagamento",
+      "sms": "Gateways de SMS"
     },
     "groups": {
       "account": "Conta",

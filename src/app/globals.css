@@ -238,3 +238,14 @@ html[data-theme="rose"] {
     display: none;
   }
 }
+
+
+/* ─── Storefront Marquee Animation ─── */
+@keyframes marquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}

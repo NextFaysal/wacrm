@@ -45,7 +45,7 @@ export async function GET(request: Request) {
 
 /**
  * POST /api/products
- * Create a new watch product.
+ * Create a new product.
  */
 export async function POST(request: Request) {
   try {
@@ -80,19 +80,24 @@ export async function POST(request: Request) {
         slug,
         price: Number(body.price) || 0,
         regular_price: body.regular_price ? Number(body.regular_price) : null,
+        cost_price: body.cost_price !== undefined && body.cost_price !== '' ? Number(body.cost_price) : 0,
+        barcode: body.barcode?.trim() || null,
+        unit: body.unit?.trim() || 'pcs',
+        custom_attributes: Array.isArray(body.custom_attributes) ? body.custom_attributes : [],
         image_url: body.image_url?.trim() || (imagesArray[0] || null),
         images: imagesArray,
         video_url: body.video_url?.trim() || null,
-        category: body.category || 'quartz',
-        dial_size: body.dial_size || '42mm',
-        water_resistance: body.water_resistance || '3ATM / 30M',
-        movement: body.movement || 'Japanese Quartz',
-        strap_type: body.strap_type || 'Genuine Leather',
-        colors: Array.isArray(body.colors) ? body.colors : ['Black', 'Silver'],
+        category: body.category?.trim() || 'General',
+        dial_size: body.dial_size?.trim() || null,
+        water_resistance: body.water_resistance?.trim() || null,
+        movement: body.movement?.trim() || null,
+        strap_type: body.strap_type?.trim() || null,
+        colors: Array.isArray(body.colors) ? body.colors : [],
         warranty_months: Number(body.warranty_months) || 12,
         stock_quantity: Number(body.stock_quantity) || 10,
         low_stock_threshold: Number(body.low_stock_threshold) || 5,
         variants: Array.isArray(body.variants) ? body.variants : [],
+        tier_pricing: Array.isArray(body.tier_pricing) ? body.tier_pricing : [],
         badge_text: body.badge_text?.trim() || null,
         description: body.description?.trim() || null,
       })
@@ -141,12 +146,17 @@ export async function PATCH(request: Request) {
 
     if (body.name !== undefined) updates.name = body.name.trim();
     if (body.sku !== undefined) updates.sku = body.sku?.trim() || null;
+    if (body.barcode !== undefined) updates.barcode = body.barcode?.trim() || null;
     if (body.slug !== undefined) updates.slug = body.slug?.trim();
     if (body.price !== undefined) updates.price = Number(body.price);
     if (body.regular_price !== undefined) updates.regular_price = body.regular_price ? Number(body.regular_price) : null;
+    if (body.cost_price !== undefined) updates.cost_price = body.cost_price !== '' ? Number(body.cost_price) : 0;
+    if (body.unit !== undefined) updates.unit = body.unit?.trim() || 'pcs';
     if (body.stock_quantity !== undefined) updates.stock_quantity = Math.max(0, Number(body.stock_quantity));
     if (body.low_stock_threshold !== undefined) updates.low_stock_threshold = Number(body.low_stock_threshold);
     if (body.variants !== undefined && Array.isArray(body.variants)) updates.variants = body.variants;
+    if (body.custom_attributes !== undefined && Array.isArray(body.custom_attributes)) updates.custom_attributes = body.custom_attributes;
+    if (body.tier_pricing !== undefined && Array.isArray(body.tier_pricing)) updates.tier_pricing = body.tier_pricing;
     if (body.badge_text !== undefined) updates.badge_text = body.badge_text?.trim() || null;
     if (body.is_active !== undefined) updates.is_active = Boolean(body.is_active);
     if (body.category !== undefined) updates.category = body.category;

@@ -46,7 +46,7 @@ export function WarrantyDialog({
   const [serialNumber, setSerialNumber] = useState('');
   const [durationMonths, setDurationMonths] = useState('12');
   const [coverageDetails, setCoverageDetails] = useState(
-    '1 Year Machine Movement Warranty & 6 Months Free Battery Replacement'
+    '1 Year Official Warranty & Comprehensive Service Support'
   );
   const [loading, setLoading] = useState(false);
   const [issuedWarranty, setIssuedWarranty] = useState<Warranty | null>(null);
@@ -128,15 +128,15 @@ export function WarrantyDialog({
       `📄 *ওয়ারেন্টি কোড:* \`${w.warranty_code}\``,
       `👤 *গ্রাহকের নাম:* ${w.customer_name}`,
       `📱 *মোবাইল নম্বর:* ${w.customer_phone}`,
-      `\n⌚ *ঘড়ির মডেল:* ${w.product_name}`,
+      `\n📦 *পণ্যের নাম:* ${w.product_name}`,
       w.serial_number ? `🔢 *সিরিয়াল নম্বর:* \`${w.serial_number}\`` : '',
       `📅 *ইস্যু তারিখ:* ${startDate}`,
       `⏳ *মেয়াদ উত্তীর্ণ:* ${endDate} (${w.duration_months} মাস)`,
       `\n📋 *কভারেজ পলিসি:*`,
       `• ${w.coverage_details}`,
       `━━━━━━━━━━━━━━━━━━━━`,
-      `যেকোনো টেকনিক্যাল সাপোর্ট, ব্যাটারি পরিবর্তন বা সার্ভিসিংয়ের জন্য এই ওয়ারেন্টি মেসেজ বা কোডটি সংরক্ষণ করুন।`,
-      `আমাদের এক্সক্লুসিভ ঘড়ি কালেকশনের সাথে থাকার জন্য আপনাকে আন্তরিক ধন্যবাদ!`,
+      `যেকোনো টেকনিক্যাল সাপোর্ট বা সার্ভিসিংয়ের জন্য এই ওয়ারেন্টি মেসেজ বা কোডটি সংরক্ষণ করুন।`,
+      `আমাদের সাথে কেনাকাটা করার জন্য আপনাকে আন্তরিক ধন্যবাদ!`,
     ];
 
     return lines.filter(Boolean).join('\n');
@@ -163,7 +163,7 @@ export function WarrantyDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-foreground">
             <Award className="size-5 text-emerald-500" />
-            Digital Watch Warranty Generator (ডিজিটাল ওয়ারেন্টি কার্ড)
+            Digital Product Warranty Generator (ডিজিটাল ওয়ারেন্টি কার্ড)
           </DialogTitle>
           <DialogDescription>
             Generate an official digital warranty certificate for this customer and send it directly to their WhatsApp.
@@ -231,7 +231,7 @@ export function WarrantyDialog({
           // Form State
           <form onSubmit={handleIssueWarranty} className="space-y-3.5 py-2">
             <div className="space-y-1.5">
-              <Label>Watch Model / Product *</Label>
+              <Label>Product / Item *</Label>
               {products.length > 0 ? (
                 <div className="space-y-1.5">
                   <select
@@ -248,7 +248,7 @@ export function WarrantyDialog({
                 </div>
               ) : (
                 <Input
-                  placeholder="e.g. Naviforce NF9117 Luxury Chronograph"
+                  placeholder="e.g. Premium Cotton Panjabi / Wireless Earbuds"
                   value={productName}
                   onChange={(e) => setProductName(e.target.value)}
                   required
@@ -279,7 +279,7 @@ export function WarrantyDialog({
 
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <Label>Watch Serial No. (Case Back)</Label>
+                <Label>Product Serial / Batch No. (Optional)</Label>
                 <Input
                   value={serialNumber}
                   onChange={(e) => setSerialNumber(e.target.value)}

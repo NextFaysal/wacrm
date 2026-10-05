@@ -42,36 +42,37 @@ export async function POST(request: Request) {
 
     const buffer = Buffer.from(await file.arrayBuffer());
 
-    // Try 'product-media' bucket, fallback to 'chat-media'
-    let uploadRes = await admin.storage
-      .from('product-media')
-      .upload(filePath, buffer, {
-        contentType: file.type,
-        upsert: false,
-      });
+    // Try 'product-media', then 'flow-media', then 'chat-media'
+    const candidateBuckets = ['product-media', 'flow-media', 'chat-media'];
+    let lastError: Error | { message: string } | null = null;
+    let chosenBucket: string | null = null;
 
-    let bucketName = 'product-media';
-
-    if (uploadRes.error) {
-      console.warn('[product-upload] product-media failed, falling back to chat-media:', uploadRes.error);
-      uploadRes = await admin.storage
-        .from('chat-media')
+    for (const b of candidateBuckets) {
+      const { error } = await admin.storage
+        .from(b)
         .upload(filePath, buffer, {
           contentType: file.type,
           upsert: false,
         });
-      bucketName = 'chat-media';
+
+      if (!error) {
+        chosenBucket = b;
+        break;
+      }
+
+      console.warn(`[product-upload] Upload to bucket "${b}" failed:`, error.message);
+      lastError = error;
     }
 
-    if (uploadRes.error) {
-      console.error('[product-upload] storage error:', uploadRes.error);
+    if (!chosenBucket) {
+      console.error('[product-upload] all candidate buckets failed:', lastError);
       return NextResponse.json(
-        { error: `Upload failed: ${uploadRes.error.message}` },
+        { error: `Upload failed: ${lastError?.message || 'Storage unavailable'}` },
         { status: 500 }
       );
     }
 
-    const { data: urlData } = admin.storage.from(bucketName).getPublicUrl(filePath);
+    const { data: urlData } = admin.storage.from(chosenBucket).getPublicUrl(filePath);
 
     return NextResponse.json({
       success: true,

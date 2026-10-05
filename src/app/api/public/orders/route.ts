@@ -1,8 +1,10 @@
-import { NextResponse } from 'next/server';
+import { NextResponse, after } from 'next/server';
 import { supabaseAdmin } from '@/lib/ai/admin-client';
 import { validateBDPhone } from '@/lib/ai/agent/risk-engine';
 import { sendPushToAccount } from '@/lib/notifications/web-push';
 import { sendMessageToConversation } from '@/lib/whatsapp/send-message';
+import { checkSteadfastFraudScore } from '@/lib/courier/dispatch';
+import { sendMetaConversionsEvent } from '@/lib/meta/conversions-api';
 
 export async function POST(request: Request) {
   try {
@@ -68,6 +70,18 @@ export async function POST(request: Request) {
       if (matched) {
         if (matched.price) unitPrice = Number(matched.price);
         if (matched.name) variantName = matched.name;
+      }
+    }
+
+    // Apply Tier Pricing if configured
+    if (Array.isArray(product.tier_pricing) && product.tier_pricing.length > 0) {
+      const sortedTiers = [...product.tier_pricing].sort(
+        (a: { quantity: number; price: number }, b: { quantity: number; price: number }) =>
+          Number(b.quantity) - Number(a.quantity)
+      );
+      const matchedTier = sortedTiers.find((t: { quantity: number; price: number }) => qty >= Number(t.quantity));
+      if (matchedTier && Number(matchedTier.price) > 0) {
+        unitPrice = Number(matchedTier.price);
       }
     }
 
@@ -228,6 +242,34 @@ export async function POST(request: Request) {
       }
     }
 
+    // 5.5 Automated Fraud Check & Risk Level Evaluation
+    let riskLevel: 'LOW' | 'MEDIUM' | 'HIGH' = 'LOW';
+    let orderStatus: 'NEW' | 'CONFIRMED' = 'CONFIRMED';
+    let riskNotes: string | null = null;
+
+    try {
+      const { data: courierCfg } = await admin
+        .from('courier_configs')
+        .select('*')
+        .eq('account_id', product.account_id)
+        .eq('provider', 'steadfast')
+        .maybeSingle();
+
+      if (courierCfg?.api_key && courierCfg.is_active && courierCfg.api_key !== 'demo') {
+        const fraudResult = await checkSteadfastFraudScore(courierCfg, phone);
+        if (fraudResult.doubtful_reports || fraudResult.level === 'danger' || fraudResult.level === 'risky') {
+          riskLevel = 'HIGH';
+          orderStatus = 'NEW';
+          const reasonStr = (fraudResult.reasons || []).join(', ') || 'Steadfast fraud alert';
+          riskNotes = `High Risk: ${reasonStr} (${fraudResult.total_reports} reports)`;
+        } else if (fraudResult.level === 'caution') {
+          riskLevel = 'MEDIUM';
+        }
+      }
+    } catch (fraudErr) {
+      console.warn('[public-order] fraud check warning:', fraudErr);
+    }
+
     // 6. Insert Order
     const { data: order, error: orderErr } = await admin
       .from('orders')
@@ -247,9 +289,9 @@ export async function POST(request: Request) {
         customer_address: body.customerAddress.trim(),
         thana: body.thana ? String(body.thana).trim() : null,
         district: body.district ? String(body.district).trim() : (matchedZone?.name || null),
-        status: 'CONFIRMED',
-        risk_level: 'LOW',
-        notes: body.notes ? String(body.notes).trim() : 'Website Single Product Page Order',
+        status: orderStatus,
+        risk_level: riskLevel,
+        notes: body.notes ? `${String(body.notes).trim()}${riskNotes ? ` | ${riskNotes}` : ''}` : (riskNotes || 'Website Single Product Page Order'),
         idempotency_key: idempotencyKey,
       })
       .select()
@@ -260,23 +302,49 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'অর্ডার সংরক্ষণ করা সম্ভব হয়নি। পুনরায় চেষ্টা করুন।' }, { status: 500 });
     }
 
-    // 7. Atomic Stock Decrement & Audit Log
+    // Mark any abandoned checkout as recovered in the background
+    void admin
+      .from('abandoned_checkouts')
+      .update({
+        recovered: true,
+        recovery_order_id: order.id,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('account_id', product.account_id)
+      .eq('customer_phone', phone)
+      .eq('recovered', false);
+
+    // 7. Attach Order ID to Stock Audit Log & Trigger Low-Stock Notification
     try {
-      await admin.rpc('decrement_product_stock', {
-        p_product_id: product.id,
-        p_quantity: qty,
-        p_variant_id: body.variantId || null,
-        p_order_id: order.id,
-      });
+      void admin
+        .from('product_stock_logs')
+        .update({ order_id: order.id })
+        .eq('product_id', product.id)
+        .is('order_id', null)
+        .order('created_at', { ascending: false })
+        .limit(1);
+
+      const remainingStock = (product.stock_quantity ?? 0) - qty;
+      const threshold = Number(product.low_stock_threshold) || 5;
+      if (remainingStock <= threshold) {
+        await sendPushToAccount(admin, product.account_id, {
+          title: `⚠️ লো স্টক অ্যালার্ট: ${product.name}`,
+          body: `সতর্কতা: "${product.name}" এর অবশিষ্ট স্টক মাত্র ${Math.max(0, remainingStock)} টি বাকি আছে! অনুগ্রহ করে রিস্টক করুন।`,
+          icon: product.image_url || '/icon-192.png',
+          data: {
+            url: '/products',
+          },
+        });
+      }
     } catch (stockErr) {
-      console.warn('[public-order] stock decrement warning:', stockErr);
+      console.warn('[public-order] stock audit/alert warning:', stockErr);
     }
 
     // 8. Automated WhatsApp Order Confirmation to Customer
     if (conversationId) {
       try {
         const orderRef = order.invoice_no || order.id.slice(0, 8).toUpperCase();
-        const confText = `আসসালামু আলাইকুম ${body.customerName.trim()}! 🛍️\n\nআপনার অর্ডারটি সফলভাবে গৃহীত হয়েছে।\n\n📦 অর্ডার আইডি: #${orderRef}\n⌚ পণ্য: ${product.name} (${order.variant || 'Standard'})\n🔢 পরিমাণ: ${qty} টি\n💰 সর্বমোট: ৳${totalAmount.toLocaleString('en-BD')} (ক্যাশ অন ডেলিভারি)\n📍 ডেলিভারি ঠিকানা: ${body.customerAddress.trim()}\n\nআমাদের প্রতিনিধি খুব শীঘ্রই পার্সেলটি পাঠিয়ে কুরিয়ার ট্র্যাকিং কোড জানিয়ে দেবেন। ধন্যবাদ আমাদের সাথে কেনাকাটা করার জন্য! ✨`;
+        const confText = `আসসালামু আলাইকুম ${body.customerName.trim()}! 🛍️\n\nআপনার অর্ডারটি সফলভাবে গৃহীত হয়েছে।\n\n📦 অর্ডার আইডি: #${orderRef}\n🛍️ পণ্য: ${product.name} (${order.variant || 'Standard'})\n🔢 পরিমাণ: ${qty} টি\n💰 সর্বমোট: ৳${totalAmount.toLocaleString('en-BD')} (ক্যাশ অন ডেলিভারি)\n📍 ডেলিভারি ঠিকানা: ${body.customerAddress.trim()}\n\nআমাদের প্রতিনিধি খুব শীঘ্রই পার্সেলটি পাঠিয়ে কুরিয়ার ট্র্যাকিং কোড জানিয়ে দেবেন। ধন্যবাদ আমাদের সাথে কেনাকাটা করার জন্য! ✨`;
 
         await sendMessageToConversation(admin, product.account_id, {
           conversationId,
@@ -290,9 +358,14 @@ export async function POST(request: Request) {
 
     // 9. Send Web Push Notification to Team
     try {
+      const pushTitle =
+        riskLevel === 'HIGH'
+          ? `⚠️ High-Risk Order: ৳${totalAmount.toLocaleString('en-BD')}`
+          : `🛍️ New Order: ৳${totalAmount.toLocaleString('en-BD')}`;
+
       await sendPushToAccount(admin, product.account_id, {
-        title: `🛍️ New Order: ৳${totalAmount.toLocaleString('en-BD')}`,
-        body: `${body.customerName.trim()} ordered ${product.name} (${order.variant || 'Standard'})`,
+        title: pushTitle,
+        body: `${body.customerName.trim()} (${phone}) ordered ${product.name}${riskLevel === 'HIGH' ? ' [Flagged]' : ''}`,
         icon: product.image_url || '/icon-192.png',
         data: {
           url: '/orders',
@@ -301,6 +374,33 @@ export async function POST(request: Request) {
     } catch (e) {
       console.warn('[public-order] push notify warning:', e);
     }
+
+    // 10. Dispatch Meta Conversions API (CAPI) Purchase Event
+    after(async () => {
+      try {
+        await sendMetaConversionsEvent({
+          accountId: product.account_id,
+          eventName: 'Purchase',
+          eventId: `order_${order.id}`,
+          userData: {
+            phone,
+            firstName: body.customerName.trim(),
+            clientIp: request.headers.get('x-forwarded-for') || undefined,
+            clientUserAgent: request.headers.get('user-agent') || undefined,
+          },
+          customData: {
+            value: totalAmount,
+            currency: 'BDT',
+            content_name: product.name,
+            content_ids: [product.id],
+            order_id: order.id,
+            num_items: qty,
+          },
+        });
+      } catch (capiErr) {
+        console.warn('[public-order] CAPI purchase warning:', capiErr);
+      }
+    });
 
     return NextResponse.json({
       success: true,

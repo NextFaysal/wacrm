@@ -122,6 +122,7 @@ export default async function RootLayout({
             {children}
             <ThemedToaster />
             <PwaRegister />
+            <Script src="/tracker.js" strategy="afterInteractive" />
           </ThemeProvider>
         </NextIntlClientProvider>
       </body>

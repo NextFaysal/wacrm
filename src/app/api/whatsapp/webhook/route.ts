@@ -29,6 +29,8 @@ import {
 } from '@/lib/whatsapp/template-webhook'
 import { sendPushToAccount } from '@/lib/notifications/web-push'
 import { autoAssignConversation } from '@/lib/assignment/round-robin'
+import { processInboundConversationalOrder } from '@/lib/ai/conversational-order'
+import { sendMessageToConversation } from '@/lib/whatsapp/send-message'
 
 // The `after()` callback in POST runs within this route's max duration.
 // Inbound processing can fan out to per-media Meta verification calls, so
@@ -1058,6 +1060,7 @@ async function processMessage(
           contactId: contactRecord.id,
           configOwnerUserId,
           inboundText,
+          inboundMessageId: message.id,
           referral: referralData,
           config: aiConfig,
         })
@@ -1065,6 +1068,30 @@ async function processMessage(
       }
     } catch (e) {
       console.error('[webhook] AI Commerce Agent error:', e)
+    }
+  }
+
+  // Natural Language Order Intake Parser (WhatsApp)
+  if (!flowConsumed && !interactiveReplyId && inboundText.trim() && !commerceHandled) {
+    try {
+      const autoOrder = await processInboundConversationalOrder({
+        accountId,
+        conversationId: conversation.id,
+        contactId: contactRecord.id,
+        text: inboundText,
+        channel: 'whatsapp',
+      });
+
+      if (autoOrder.orderCreated && autoOrder.confirmationMessage) {
+        await sendMessageToConversation(supabaseAdmin(), accountId, {
+          conversationId: conversation.id,
+          messageType: 'text',
+          contentText: autoOrder.confirmationMessage,
+        });
+        commerceHandled = true;
+      }
+    } catch (orderErr) {
+      console.warn('[webhook] auto order parse error:', orderErr);
     }
   }
 

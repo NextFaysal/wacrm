@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { engineSendText } from '@/lib/flows/meta-send';
 import { loadAiConfig } from '@/lib/ai/config';
 import { generateReply } from '@/lib/ai/generate';
+import { runAccountFollowupQueue } from '@/lib/followup/dispatcher';
 
 let _adminClient: any = null;
 function supabaseAdmin() {
@@ -239,10 +240,29 @@ async function handleCronFollowups(request: Request) {
     }
   }
 
+  // Also run the automated checkout and advance payment followup queue
+  const { data: accounts } = await db.from('accounts').select('id');
+  const queueStats = { accounts: 0, sent: 0, skipped: 0, failed: 0 };
+
+  if (accounts && accounts.length > 0) {
+    for (const acc of accounts) {
+      try {
+        const qRes = await runAccountFollowupQueue(db, acc.id);
+        queueStats.accounts++;
+        queueStats.sent += qRes.sent;
+        queueStats.skipped += qRes.skipped;
+        queueStats.failed += qRes.failed;
+      } catch (qErr) {
+        console.warn(`[cron-followups] automated queue failed for ${acc.id}:`, qErr);
+      }
+    }
+  }
+
   return NextResponse.json({
     success: true,
     processed: followups.length,
     sent: sentCount,
     cancelled: cancelledCount,
+    automatedQueue: queueStats,
   });
 }

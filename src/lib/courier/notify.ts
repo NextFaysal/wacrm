@@ -1,13 +1,20 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { sendMessageToConversation } from '@/lib/whatsapp/send-message';
+import { sendSms } from '@/lib/sms/sms-service';
 
-export type CourierNotificationType = 'OUT_FOR_DELIVERY' | 'IN_TRANSIT' | 'DELIVERED';
+export type CourierNotificationType =
+  | 'OUT_FOR_DELIVERY'
+  | 'IN_TRANSIT'
+  | 'DELIVERED'
+  | 'FAILED_DELIVERY'
+  | 'HOLD_ALERT';
 
 interface OrderNotifyContext {
   id: string;
   account_id: string;
   conversation_id?: string | null;
   customer_name: string;
+  customer_phone?: string | null;
   customer_address?: string | null;
   invoice_no?: string | null;
   product_name?: string | null;
@@ -15,6 +22,7 @@ interface OrderNotifyContext {
   advance_paid?: number | null;
   courier_provider?: string | null;
   courier_tracking_code?: string | null;
+  review_token?: string | null;
 }
 
 /**
@@ -57,20 +65,50 @@ export async function notifyCustomerCourierUpdate(
     freeWindowExpiresAt = new Date(lastInteraction.getTime() + windowHours * 60 * 60 * 1000);
   }
 
-  if (now > freeWindowExpiresAt) {
-    console.log(
-      `[courier-notify] Free window expired for conv ${order.conversation_id} (expired at ${freeWindowExpiresAt.toISOString()}). Skipping notification to avoid Meta charges.`
-    );
-    return { sent: false, reason: 'FREE_WINDOW_EXPIRED' };
-  }
-
-  // 2. Compute Invoice & COD details
+  // 2. Compute Invoice, COD & Review details
   const invoiceNo = order.invoice_no || `INV-${order.id.slice(0, 8).toUpperCase()}`;
   const totalAmount = Number(order.total_amount) || 0;
   const advanceAmount = Number(order.advance_paid) || 0;
   const codDue = Math.max(0, totalAmount - advanceAmount);
   const trackingCode = details?.trackingCode || order.courier_tracking_code || '';
   const customerName = order.customer_name || 'গ্রাহক';
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://wacrm.live';
+
+  let reviewToken = order.review_token;
+  if (eventType === 'DELIVERED' && !reviewToken) {
+    reviewToken = crypto.randomUUID();
+    // Persist review_token asynchronously
+    supabase
+      .from('orders')
+      .update({ review_token: reviewToken, review_requested_at: new Date().toISOString() })
+      .eq('id', order.id)
+      .then();
+  }
+  const reviewUrl = reviewToken ? `${appUrl.replace(/\/$/, '')}/review/${reviewToken}` : '';
+
+  if (now > freeWindowExpiresAt) {
+    if (order.customer_phone) {
+      let smsMsg = '';
+      if (eventType === 'DELIVERED') {
+        smsMsg = `ধন্যবাদ! আপনার পার্সেল (${invoiceNo}) সফলভাবে ডেলিভারি হয়েছে। আপনার অভিজ্ঞতা জানিয়ে জিতে নিন ১০০ টাকার কুপন: ${reviewUrl || appUrl}`;
+      } else if (eventType === 'OUT_FOR_DELIVERY') {
+        const trackUrl = `${appUrl.replace(/\/$/, '')}/track/${encodeURIComponent(trackingCode || invoiceNo)}`;
+        smsMsg = `আপনার পার্সেল (${invoiceNo}) আজ ডেলিভারির জন্য বের হয়েছে। রাইডার কল করবেন। লাইভ ট্র্যাক: ${trackUrl}`;
+      } else {
+        const trackUrl = `${appUrl.replace(/\/$/, '')}/track/${encodeURIComponent(trackingCode || invoiceNo)}`;
+        smsMsg = `আপনার পার্সেল (${invoiceNo}) কুরিয়ারে বুকিং হয়েছে। লাইভ ট্র্যাক করুন: ${trackUrl}`;
+      }
+
+      await sendSms({
+        accountId: order.account_id,
+        phone: order.customer_phone,
+        message: smsMsg,
+        orderId: order.id,
+      });
+      return { sent: true, reason: 'SMS_FALLBACK_SENT' };
+    }
+    return { sent: false, reason: 'FREE_WINDOW_EXPIRED' };
+  }
 
   let messageText = '';
 
@@ -98,10 +136,29 @@ export async function notifyCustomerCourierUpdate(
     }
 
     case 'DELIVERED': {
+      const reviewAction = reviewUrl
+        ? `\n\n🎁 *আপনার মতামত আমাদের জন্য অমূল্য!*\n` +
+          `প্রোডাক্টটির একটি ছবি ও ১ মিনিটে রিভিউ দিয়ে পরবর্তী অর্ডারে জিতে নিন *৳১০০ ডিসকাউন্ট কুপন*:\n` +
+          `👉 ${reviewUrl}\n\n`
+        : '\n\n';
+
       messageText =
         `আসসালামু আলাইকুম ${customerName}! 🎁\n\n` +
-        `আপনার পার্সেলটি (*${invoiceNo}*) সফলভাবে ডেলিভারি হয়েছে। আমাদের ঘড়িটি আপনার কেমন লেগেছে? আপনার মূল্যবান মতামত জানাতে পারেন।\n\n` +
-        `ভবিষ্যতে যেকোনো প্রয়োজনে বা ১ বছরের ওয়ারেন্টির তথ্যের জন্য আমাদের এই নম্বরে যোগাযোগ করতে পারেন। আমাদের সাথে থাকার জন্য অনেক ধন্যবাদ! 🥰`;
+        `আপনার পার্সেলটি (*${invoiceNo}*) সফলভাবে ডেলিভারি হয়েছে। আশা করি প্রোডাক্টটি আপনার পছন্দ হয়েছে!` +
+        reviewAction +
+        `ভবিষ্যতে যেকোনো প্রয়োজনে বা ওয়ারেন্টির তথ্যের জন্য আমাদের এই নম্বরে যোগাযোগ করতে পারেন। আমাদের সাথে থাকার জন্য অনেক ধন্যবাদ! 🥰`;
+      break;
+    }
+
+    case 'FAILED_DELIVERY':
+    case 'HOLD_ALERT': {
+      const trackingLine = trackingCode ? `\n🚚 কুরিয়ার ট্র্যাকিং কোড: *${trackingCode}*` : '';
+      messageText =
+        `আসসালামু আলাইকুম ${customerName}! ⚠️\n\n` +
+        `আপনার অর্ডারটির (*${invoiceNo}*) ডেলিভারিম্যান আজ আপনার এলাকায় ডেলিভারির জন্য গিয়েছিলেন কিন্তু যোগাযোগ করা সম্ভব হয়নি বা ডেলিভারি স্থগিত রয়েছে।${trackingLine}\n\n` +
+        `📦 প্রোডাক্ট: *${order.product_name || 'অর্ডারকৃত পণ্য'}*\n` +
+        `💰 বকেয়া COD মূল্য: *৳${codDue.toLocaleString('en-BD')}*\n\n` +
+        `পার্সেলটি যেন রিটার্ন হয়ে বাতিল না হয়ে যায়, সেজন্য অনুগ্রহ করে রাইডারের কলে যোগাযোগ করুন অথবা এখনই এই মেসেজের রিপ্লাই দিয়ে জানান কখন ডেলিভারি নিলে আপনার সুবিধা হবে। ধন্যবাদ! ❤️`;
       break;
     }
   }

@@ -1,11 +1,14 @@
-﻿import type { SupabaseClient } from '@supabase/supabase-js';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import type { ConversationMemory, ConversationState, Order } from '@/types/commerce';
 import type { Product } from '@/types/watch';
 import { calculateCustomerRisk, validateBDPhone, validateAddressCompleteness } from './risk-engine';
-import { dispatchCourierOrder } from '@/lib/courier/dispatch';
+import { dispatchCourierOrder, getLiveCourierTracking } from '@/lib/courier/dispatch';
 import { normalizeBdLocation } from '@/lib/courier/bd-geo';
+import { getSmartCourierRoute } from '@/lib/courier/smart-router';
 import { getTrackingUrl } from '@/lib/courier/utils';
 import { engineSendText, engineSendMedia } from '@/lib/flows/meta-send';
+import { getSmartUpsellRecommendation } from '@/lib/commerce/upsell-engine';
+import { matchProductFromImage } from '@/lib/ai/visual-matcher';
 
 export interface ToolContext {
   db: SupabaseClient;
@@ -81,12 +84,12 @@ export const AI_COMMERCE_TOOLS: Record<string, ToolDefinition> = {
   // 2. search_products
   search_products: {
     name: 'search_products',
-    description: 'Search available watch products by keyword or category.',
+    description: 'Search available products by keyword or category.',
     parameters: {
       type: 'object',
       properties: {
-        query: { type: 'string', description: 'Search keywords e.g. "curren", "automatic"' },
-        category: { type: 'string', description: 'Category e.g. quartz, chronograph, automatic' },
+        query: { type: 'string', description: 'Search keywords or product name' },
+        category: { type: 'string', description: 'Category name or type' },
       },
       required: ['query'],
     },
@@ -113,7 +116,7 @@ export const AI_COMMERCE_TOOLS: Record<string, ToolDefinition> = {
   // 3. check_stock
   check_stock: {
     name: 'check_stock',
-    description: 'Check verified stock quantity and availability for a watch model.',
+    description: 'Check verified stock quantity and availability for a product.',
     parameters: {
       type: 'object',
       properties: {
@@ -143,11 +146,11 @@ export const AI_COMMERCE_TOOLS: Record<string, ToolDefinition> = {
   // 4. search_similar_products
   search_similar_products: {
     name: 'search_similar_products',
-    description: 'Find similar in-stock watch models when a requested product is out of stock.',
+    description: 'Find similar in-stock products when a requested item is out of stock.',
     parameters: {
       type: 'object',
       properties: {
-        category: { type: 'string', description: 'Category e.g. quartz, chronograph' },
+        category: { type: 'string', description: 'Category name or filter' },
         excludeId: { type: 'string', description: 'Current product ID to exclude' },
       },
     },
@@ -289,7 +292,7 @@ export const AI_COMMERCE_TOOLS: Record<string, ToolDefinition> = {
         freeReason = `${settings.free_delivery_min_qty} বা ততোধিক পিস অর্ডারে ফ্রি ডেলিভারি`;
       } else if (settings?.free_delivery_min_amount && settings.free_delivery_min_amount > 0 && amount >= Number(settings.free_delivery_min_amount)) {
         isFree = true;
-        freeReason = `à§³${settings.free_delivery_min_amount} à¦Ÿà¦¾à¦•à¦¾à¦° à¦¬à§‡à¦¶à¦¿ à¦…à¦°à§à¦¡à¦¾à¦°à§‡ à¦«à§à¦°à¦¿ à¦¡à§‡à¦²à¦¿à¦­à¦¾à¦°à¦¿`;
+        freeReason = `৳${settings.free_delivery_min_amount} টাকার বেশি অর্ডারে ফ্রি ডেলিভারি`;
       } else if (standardCharge === 0) {
         isFree = true;
       }
@@ -375,7 +378,7 @@ export const AI_COMMERCE_TOOLS: Record<string, ToolDefinition> = {
         thana: { type: 'string', description: 'Thana or Upazila' },
         district: { type: 'string', description: 'District name (e.g. Dhaka, Chittagong, Khulna)' },
         productId: { type: 'string', description: 'Product ID' },
-        variant: { type: 'string', description: 'Selected color or strap variant' },
+        variant: { type: 'string', description: 'Selected color, size, or style variant' },
         quantity: { type: 'number', description: 'Quantity (default 1)' },
         deliveryCharge: { type: 'number', description: 'Delivery fee in BDT. If omitted, dynamically calculated based on district and settings.' },
         couponCode: { type: 'string', description: 'Optional discount coupon code' },
@@ -563,6 +566,34 @@ export const AI_COMMERCE_TOOLS: Record<string, ToolDefinition> = {
           .eq('id', product.id);
       }
 
+      // Fire Meta CAPI Purchase event asynchronously in background
+      try {
+        const { trackOrderPurchaseCapi, getMetaCapiConfig } = await import('@/lib/meta/capi');
+        getMetaCapiConfig(ctx.accountId, ctx.db).then((capiCfg) => {
+          trackOrderPurchaseCapi(
+            capiCfg,
+            {
+              id: order.id,
+              invoice_no: order.invoice_no || invoiceNo,
+              total_amount: totalAmount,
+              customer_phone: phone,
+              customer_name: String(args.customerName).trim(),
+              city: loc.district,
+              items: [
+                {
+                  id: product.id,
+                  name: product.name,
+                  quantity: qty,
+                  price: unitPrice,
+                },
+              ],
+            }
+          ).catch((err) => console.warn('[create_order] Meta CAPI tracking skipped:', err));
+        }).catch(() => {});
+      } catch {
+        // Non-blocking
+      }
+
       return {
         success: true,
         orderId: order.id,
@@ -604,7 +635,18 @@ export const AI_COMMERCE_TOOLS: Record<string, ToolDefinition> = {
 
       if (error || !order) return { error: 'Order not found' };
 
-      const provider = (args.preferredProvider as 'steadfast' | 'pathao') || 'steadfast';
+      let provider = (args.preferredProvider as 'steadfast' | 'pathao') || null;
+      if (!provider) {
+        try {
+          const smartRoute = await getSmartCourierRoute(ctx.db, {
+            accountId: ctx.accountId,
+            customerAddress: order.customer_address,
+          });
+          provider = smartRoute.recommendedProvider as 'steadfast' | 'pathao';
+        } catch {
+          provider = 'steadfast';
+        }
+      }
       const { data: config } = await ctx.db
         .from('courier_configs')
         .select('*')
@@ -624,7 +666,7 @@ export const AI_COMMERCE_TOOLS: Record<string, ToolDefinition> = {
           recipient_phone: order.customer_phone,
           recipient_address: order.customer_address,
           cod_amount: order.total_amount - (order.advance_paid || 0),
-          note: `Watch Model: ${order.product_name} (${order.variant || 'Standard'}) - Qty: ${order.quantity}`,
+          note: `Product: ${order.product_name} (${order.variant || 'Standard'}) - Qty: ${order.quantity}`,
           color_variant: order.variant || undefined,
           conversation_id: ctx.conversationId,
           contact_id: ctx.contactId,
@@ -705,16 +747,39 @@ export const AI_COMMERCE_TOOLS: Record<string, ToolDefinition> = {
       const trx = String(args.trxId).trim().toUpperCase();
       const method = String(args.method || 'bKash').trim();
 
+      // Check duplicate TrxID fraud prevention
+      try {
+        const { data: existingTrx } = await ctx.db
+          .from('orders')
+          .select('id, invoice_no')
+          .eq('advance_trx_id', trx)
+          .neq('id', order.id)
+          .limit(1);
+
+        if (existingTrx && existingTrx.length > 0 && existingTrx[0].id !== order.id) {
+          return {
+            error: `এই TrxID (${trx}) ইতোমধ্যে অর্ডার #${existingTrx[0].invoice_no || existingTrx[0].id} এ ব্যবহৃত হয়েছে। দয়া করে সঠিক ট্রানজেকশন আইডি দিন।`,
+          };
+        }
+      } catch (err) {
+        console.warn('[record_advance_payment] duplicate TrxID check skipped:', err);
+      }
+
       const newCodDue = Math.max(0, order.total_amount - advance);
+      const shouldConfirm = ['pending', 'new', 'draft', 'unconfirmed'].includes(String(order.status || '').toLowerCase());
+      const updateData: Record<string, unknown> = {
+        advance_paid: advance,
+        advance_method: method,
+        advance_trx_id: trx,
+        advance_status: 'verified',
+      };
+      if (shouldConfirm) {
+        updateData.status = 'confirmed';
+      }
 
       await ctx.db
         .from('orders')
-        .update({
-          advance_paid: advance,
-          advance_method: method,
-          advance_trx_id: trx,
-          advance_status: 'verified',
-        })
+        .update(updateData)
         .eq('id', order.id);
 
       return {
@@ -726,7 +791,8 @@ export const AI_COMMERCE_TOOLS: Record<string, ToolDefinition> = {
         trxId: trx,
         totalAmount: order.total_amount,
         codDue: newCodDue,
-        message: `à§³${advance} à¦Ÿà¦¾à¦•à¦¾ à¦…à¦—à§à¦°à¦¿à¦® à¦—à§à¦°à¦¹à¦£ à¦•à¦°à¦¾ à¦¹à§Ÿà§‡à¦›à§‡ (${method} TrxID: ${trx})à¥¤ à¦¡à§‡à¦²à¦¿à¦­à¦¾à¦°à¦¿à¦° à¦¸à¦®à§Ÿ à¦…à¦¬à¦¶à¦¿à¦·à§à¦Ÿ à¦¬à¦•à§‡à§Ÿà¦¾: à§³${newCodDue}à¥¤`,
+        status: shouldConfirm ? 'confirmed' : order.status,
+        message: `৳${advance} টাকা অগ্রিম গ্রহণ করা হয়েছে (${method} TrxID: ${trx})। ডেলিভারির সময় অবশিষ্ট বকেয়া: ৳${newCodDue}।${shouldConfirm ? ' অর্ডারটি নিশ্চিত করা হয়েছে! 🎉' : ''}`,
       };
     },
   },
@@ -906,7 +972,7 @@ export const AI_COMMERCE_TOOLS: Record<string, ToolDefinition> = {
           product_id: args.productId ? String(args.productId) : null,
           scheduled_at: scheduledAt,
           status: 'pending',
-          message_prompt: args.prompt ? String(args.prompt) : 'Follow up on watch color preference',
+          message_prompt: args.prompt ? String(args.prompt) : 'Follow up on product preference',
         })
         .select('id')
         .single();
@@ -978,7 +1044,7 @@ export const AI_COMMERCE_TOOLS: Record<string, ToolDefinition> = {
               contactId: ctx.contactId,
               kind: 'image',
               link: item.imageUrl,
-              caption: item.color ? `ðŸŽ¨ Color: ${item.color}` : undefined,
+              caption: item.color ? `🎨 কালার: ${item.color}` : undefined,
             });
             sentCount++;
           } catch (e) {
@@ -1067,7 +1133,7 @@ export const AI_COMMERCE_TOOLS: Record<string, ToolDefinition> = {
   // 16. get_order_status
   get_order_status: {
     name: 'get_order_status',
-    description: 'Track and check the live status of an order using customer phone, invoice number (e.g. WG-1002), or order ID.',
+    description: 'Track and check the live status of an order using customer phone, invoice number (e.g. INV-1002), or order ID.',
     parameters: {
       type: 'object',
       properties: {
@@ -1105,6 +1171,28 @@ export const AI_COMMERCE_TOOLS: Record<string, ToolDefinition> = {
         ? getTrackingUrl(order.courier_provider, order.courier_tracking_code)
         : null;
 
+      let liveTracking: any = null;
+      if (order.courier_provider && order.courier_tracking_code) {
+        try {
+          const configQuery = ctx.db.from('courier_configs');
+          if (configQuery && typeof configQuery.select === 'function') {
+            const { data: cCfg } = await configQuery
+              .select('*')
+              .eq('account_id', ctx.accountId)
+              .eq('provider', order.courier_provider)
+              .maybeSingle();
+
+            liveTracking = await getLiveCourierTracking(
+              cCfg,
+              order.courier_provider,
+              order.courier_tracking_code
+            );
+          }
+        } catch (e) {
+          console.warn('[tools] getLiveCourierTracking error:', e);
+        }
+      }
+
       let statusBangla = '';
       let humanStatusBangla = '';
       switch (order.status) {
@@ -1119,12 +1207,16 @@ export const AI_COMMERCE_TOOLS: Record<string, ToolDefinition> = {
           break;
         case 'COURIER_BOOKED':
           statusBangla = 'কুরিয়ারে হস্তান্তর করা হয়েছে';
-          humanStatusBangla = `পার্সেলটি ${order.courier_provider ? order.courier_provider.toUpperCase() : ''} কুরিয়ারে বুক করা হয়েছে। ট্র্যাকিং কোড: ${order.courier_tracking_code || 'প্রক্রিয়াধীন'}। 🚚`;
+          humanStatusBangla = liveTracking?.statusBangla
+            ? `পার্সেলটি কুরিয়ারে রয়েছে: ${liveTracking.statusBangla}। 🚚`
+            : `পার্সেলটি ${order.courier_provider ? order.courier_provider.toUpperCase() : ''} কুরিয়ারে বুক করা হয়েছে। ট্র্যাকিং কোড: ${order.courier_tracking_code || 'প্রক্রিয়াধীন'}। 🚚`;
           break;
         case 'SHIPPED':
         case 'OUT_FOR_DELIVERY':
           statusBangla = 'ডেলিভারির পথে';
-          humanStatusBangla = 'পার্সেলটি আপনার এলাকার ডেলিভারি রাইডারের কাছে রয়েছে। আজ অথবা আগামীকালের মধ্যেই ডেলিভারি পেয়ে যাবেন! 🏃‍♂️';
+          humanStatusBangla = liveTracking?.statusBangla
+            ? `${liveTracking.statusBangla} 🏃‍♂️`
+            : 'পার্সেলটি আপনার এলাকার ডেলিভারি রাইডারের কাছে রয়েছে। আজ অথবা আগামীকালের মধ্যেই ডেলিভারি পেয়ে যাবেন! 🏃‍♂️';
           break;
         case 'DELIVERED':
           statusBangla = 'ডেলিভারি সম্পন্ন';
@@ -1146,13 +1238,14 @@ export const AI_COMMERCE_TOOLS: Record<string, ToolDefinition> = {
       const trackingLine = order.courier_tracking_code
         ? `\n🚚 কুরিয়ার ট্র্যাকিং কোড: *${order.courier_tracking_code}*${trackingUrl ? `\n🔗 ট্র্যাকিং লিঙ্ক: ${trackingUrl}` : ''}`
         : '';
+      const locationLine = liveTracking?.location ? `\n📍 বর্তমান হাব/অবস্থান: *${liveTracking.location}*` : '';
       const invoiceLine = order.invoice_no ? `\n🧾 ইনভয়েস নম্বর: *${order.invoice_no}*` : '';
 
       const fullReply =
         `আপনার অর্ডারের বিবরণ নিচে দেওয়া হলো:\n\n` +
         `📦 প্রোডাক্ট: *${order.product_name}* (${order.variant || 'Standard'})\n` +
         `🔢 পরিমাণ: ${order.quantity}টি | মোট মূল্য: ৳${order.total_amount}\n` +
-        `${invoiceLine}${trackingLine}\n` +
+        `${invoiceLine}${trackingLine}${locationLine}\n` +
         `📌 বর্তমান অবস্থা: *${humanStatusBangla}*\n\n` +
         `পার্সেল রিসিভ করার সময় চেক করে নেওয়ার সুযোগ রয়েছে। কোনো প্রশ্ন থাকলে নিঃসংকোচে বলুন! 😊`;
 
@@ -1217,9 +1310,9 @@ export const AI_COMMERCE_TOOLS: Record<string, ToolDefinition> = {
       await AI_COMMERCE_TOOLS.apply_tag.handler({ tagName }, ctx);
 
       const empatheticReply =
-        `আসসালামু আলাইকুম ভাইয়া, আপনার এই অসুবিধার জন্য আমরা আন্তরিকভাবে দুঃখিত! ❤️ আমাদের সব ঘড়িতে ১ বছরের অফিশিয়াল ওয়ারেন্টি সুবিধা রয়েছে।\n\n` +
-        `অনুগ্রহ করে ঘড়িটির সমস্যাটির একটি ছোট ছবি বা ভিডিও এবং আপনার ক্যাশমেমো/ইনভয়েস নম্বরটি এখানে দিন।\n` +
-        `আমাদের টিম এটি দ্রুত ভেরিফাই করে সম্পূর্ণ ফ্রিতে রিপ্লেসমেন্ট অথবা সমাধান করে দিবে। চিন্তার কোনো কারণ নেই, আমরা সবসময় আপনার পাশে আছি! 😊`;
+        `আসসালামু আলাইকুম, আপনার এই অসুবিধার জন্য আমরা আন্তরিকভাবে দুঃখিত! ❤️ আমাদের প্রতিটি পণ্যে অফিসিয়াল কোয়ালিটি নিশ্চয়তা ও সাপোর্ট সুবিধা রয়েছে।\n\n` +
+        `অনুগ্রহ করে পণ্যটির সমস্যাটির একটি ছোট ছবি বা ভিডিও এবং আপনার ক্যাশমেমো/ইনভয়েস নম্বরটি এখানে দিন।\n` +
+        `আমাদের টিম এটি দ্রুত ভেরিফাই করে প্রয়োজনীয় রিপ্লেসমেন্ট অথবা সমাধান করে দিবে। চিন্তার কোনো কারণ নেই, আমরা সবসময় আপনার পাশে আছি! 😊`;
 
       return {
         success: true,
@@ -1233,11 +1326,11 @@ export const AI_COMMERCE_TOOLS: Record<string, ToolDefinition> = {
   // 18. recommend_products
   recommend_products: {
     name: 'recommend_products',
-    description: 'Recommend top alternate watch models from catalog with photos, prices, and features.',
+    description: 'Recommend top alternate products from catalog with photos, prices, and features.',
     parameters: {
       type: 'object',
       properties: {
-        category: { type: 'string', description: 'e.g. "luxury", "casual", "leather", "steel", "chain"' },
+        category: { type: 'string', description: 'e.g. "luxury", "casual", "premium", "trending"' },
         maxPrice: { type: 'number', description: 'Maximum budget in BDT' },
       },
     },
@@ -1270,6 +1363,54 @@ export const AI_COMMERCE_TOOLS: Record<string, ToolDefinition> = {
       return {
         success: true,
         products: recommendations,
+      };
+    },
+  },
+
+  // 13. recommend_upsell_bundle
+  recommend_upsell_bundle: {
+    name: 'recommend_upsell_bundle',
+    description: 'Find a matching add-on product or discounted combo offer to upsell when a customer is about to order.',
+    parameters: {
+      type: 'object',
+      properties: {
+        currentProductId: { type: 'string', description: 'ID of product customer is interested in' },
+      },
+    },
+    handler: async (args, ctx) => {
+      const pId = (args.currentProductId as string) || ctx.memory.interested_product_id;
+      const rec = await getSmartUpsellRecommendation(ctx.db, ctx.accountId, pId);
+      if (!rec.hasUpsell) {
+        return { success: false, message: 'No upsell available' };
+      }
+      return {
+        success: true,
+        upsellProduct: rec.upsellProduct,
+        comboOfferText: rec.comboOfferText,
+        discount: rec.bundleDiscountAmount,
+      };
+    },
+  },
+
+  // 14. visual_search_product
+  visual_search_product: {
+    name: 'visual_search_product',
+    description: 'Match customer photos or screenshot descriptions against the active product catalog using visual keywords.',
+    parameters: {
+      type: 'object',
+      properties: {
+        imageKeywords: { type: 'string', description: 'Description, color, type or caption of the image sent by customer' },
+      },
+      required: ['imageKeywords'],
+    },
+    handler: async (args, ctx) => {
+      const keywords = String(args.imageKeywords || '');
+      const match = await matchProductFromImage(ctx.db, ctx.accountId, keywords);
+      return {
+        matched: match.matched,
+        product: match.product,
+        confidence: match.confidence,
+        replyMessage: match.message,
       };
     },
   },

@@ -29,6 +29,7 @@
     "automations": "Automatizaciones",
     "flows": "Flujos",
     "aiAgents": "Agentes de IA",
+    "metaManagement": "Meta (FB e IG)",
     "settings": "Configuración",
     "beta": "Beta",
     "unreadConversations": "{count} {count, plural, =1 {conversación sin leer} other {conversaciones sin leer}}",
@@ -42,7 +43,8 @@
     "defaultAvatar": "Avatar",
     "menuProfile": "Perfil",
     "menuSettings": "Configuración",
-    "menuSignOut": "Cerrar sesión"
+    "menuSignOut": "Cerrar sesión",
+    "growthIntelligence": "IA de Crecimiento y Marketing"
   },
   "Header": {
     "dashboard": "Panel",
@@ -1684,6 +1686,16 @@
       "fields": "Campos y etiquetas",
       "deals": "Negocios y moneda",
       "members": "Miembros del equipo",
+      "delivery": "Entrega y Envío",
+      "courier": "API de Envíos",
+      "store": "Tienda y CMS",
+      "coupons": "Cupones y Descuentos",
+      "reviews": "Reseñas de Clientes",
+      "loyalty": "Lealtad y Recompensas",
+      "ai-actions": "Acciones de IA",
+      "followups": "Seguimientos y Recuperación",
+      "payments": "Pasarelas de Pago (bKash / Nagad)",
+      "sms": "Pasarelas de SMS y OTP",
       "api": "Claves de API"
     },
     "groups": {

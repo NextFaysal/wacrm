@@ -92,35 +92,38 @@ export function AdvancePaymentDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <CreditCard className="w-5 h-5 text-emerald-600" />
-            Advance Payment / অগ্রিম পেমেন্ট
+      <DialogContent className="max-w-md w-[95vw] rounded-2xl">
+        <DialogHeader className="pb-1">
+          <DialogTitle className="flex items-center gap-2.5 text-base">
+            <div className="h-8 w-8 rounded-xl bg-emerald-500/10 text-emerald-600 flex items-center justify-center shrink-0">
+              <CreditCard className="h-4 w-4" />
+            </div>
+            Advance Payment
           </DialogTitle>
-          <DialogDescription>
-            অর্ডার #{order.invoice_no || order.id.slice(0, 8)} ({order.customer_name}) এর জন্য অগ্রিম পেমেন্ট আপডেট করুন।
+          <DialogDescription className="text-xs ml-10.5">
+            অর্ডার #{order.invoice_no || order.id.slice(0, 8)} — {order.customer_name} এর অগ্রিম পেমেন্ট।
           </DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="space-y-4 py-2">
-          <div className="bg-muted/50 p-3 rounded-lg flex justify-between items-center text-xs">
-            <div>
-              <span className="text-muted-foreground">Order Total:</span>
+        <form onSubmit={handleSubmit} className="space-y-4 py-1">
+          {/* Summary Bar */}
+          <div className="bg-muted/50 border border-border/60 p-3 rounded-xl grid grid-cols-3 gap-2 text-xs">
+            <div className="text-center">
+              <span className="text-muted-foreground block mb-0.5">Order Total</span>
               <p className="font-bold text-sm">৳{totalAmount.toLocaleString('en-BD')}</p>
             </div>
-            <div>
-              <span className="text-muted-foreground">Advance Paid:</span>
+            <div className="text-center border-x border-border/50">
+              <span className="text-muted-foreground block mb-0.5">Advance</span>
               <p className="font-bold text-sm text-emerald-600">৳{numPaid.toLocaleString('en-BD')}</p>
             </div>
-            <div className="text-right">
-              <span className="text-muted-foreground">Remaining COD:</span>
+            <div className="text-center">
+              <span className="text-muted-foreground block mb-0.5">COD Due</span>
               <p className="font-black text-sm text-primary">৳{remainingCod.toLocaleString('en-BD')}</p>
             </div>
           </div>
 
           <div className="space-y-1.5">
-            <Label htmlFor="advanceAmount">Advance Amount / জমার পরিমাণ (৳)</Label>
+            <Label htmlFor="advanceAmount" className="text-xs font-semibold">Advance Amount (৳)</Label>
             <Input
               id="advanceAmount"
               type="number"
@@ -130,70 +133,74 @@ export function AdvancePaymentDialog({
               onChange={(e) => setAdvancePaid(e.target.value)}
               placeholder="e.g. 150"
               required
+              className="h-9 font-mono"
             />
           </div>
 
           <div className="space-y-1.5">
-            <Label>Payment Method / মাধ্যম</Label>
+            <Label className="text-xs font-semibold">Payment Method</Label>
             <div className="grid grid-cols-2 gap-2">
               {PAYMENT_METHODS.map((m) => (
                 <button
                   type="button"
                   key={m.id}
                   onClick={() => setAdvanceMethod(m.id)}
-                  className={`text-xs p-2 rounded-md border text-left transition-colors flex items-center justify-between ${
+                  className={`text-xs py-2 px-3 rounded-lg border text-left transition-all flex items-center justify-between ${
                     advanceMethod === m.id
                       ? 'border-primary bg-primary/10 font-bold text-primary'
-                      : 'border-input hover:bg-accent'
+                      : 'border-input hover:bg-muted/50 text-foreground'
                   }`}
                 >
                   {m.label}
-                  {advanceMethod === m.id && <CheckCircle2 className="w-3.5 h-3.5 text-primary" />}
+                  {advanceMethod === m.id && <CheckCircle2 className="w-3.5 h-3.5 text-primary shrink-0" />}
                 </button>
               ))}
             </div>
           </div>
 
           <div className="space-y-1.5">
-            <Label htmlFor="trxId">Transaction ID / TrxID (অপশনাল)</Label>
+            <Label htmlFor="trxId" className="text-xs font-semibold">Transaction ID (Optional)</Label>
             <Input
               id="trxId"
               value={advanceTrxId}
               onChange={(e) => setAdvanceTrxId(e.target.value)}
               placeholder="e.g. 9L184K39"
+              className="h-9 font-mono"
             />
           </div>
 
           <div className="space-y-1.5">
-            <Label>Verification Status</Label>
+            <Label className="text-xs font-semibold">Verification Status</Label>
             <div className="flex gap-2">
               <Button
-                type="button"
-                size="sm"
+                type="button" size="sm"
                 variant={advanceStatus === 'verified' ? 'default' : 'outline'}
-                className="flex-1 text-xs"
+                className="flex-1 text-xs h-9"
                 onClick={() => setAdvanceStatus('verified')}
               >
-                Verified (ভেরিফাইড)
+                ✅ Verified
               </Button>
               <Button
-                type="button"
-                size="sm"
+                type="button" size="sm"
                 variant={advanceStatus === 'pending' ? 'secondary' : 'outline'}
-                className="flex-1 text-xs"
+                className="flex-1 text-xs h-9"
                 onClick={() => setAdvanceStatus('pending')}
               >
-                Pending (অপেক্ষমান)
+                ⏳ Pending
               </Button>
             </div>
           </div>
 
-          <DialogFooter className="pt-2">
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+          <DialogFooter className="pt-1 gap-2">
+            <Button type="button" variant="outline" size="sm" onClick={() => onOpenChange(false)} className="flex-1 sm:flex-none">
               Cancel
             </Button>
-            <Button type="submit" disabled={loading}>
-              {loading ? 'Saving...' : 'Save Advance Payment'}
+            <Button type="submit" size="sm" disabled={loading} className="flex-1 sm:flex-none gap-1.5">
+              {loading ? (
+                <><AlertCircle className="h-3.5 w-3.5 animate-pulse" /> Saving...</>
+              ) : (
+                <><CheckCircle2 className="h-3.5 w-3.5" /> Save Payment</>
+              )}
             </Button>
           </DialogFooter>
         </form>
@@ -201,3 +208,4 @@ export function AdvancePaymentDialog({
     </Dialog>
   );
 }
+

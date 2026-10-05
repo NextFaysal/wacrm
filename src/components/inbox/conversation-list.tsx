@@ -65,6 +65,7 @@ export function ConversationList({
 
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<InboxFilter>("all");
+  const [channelFilter, setChannelFilter] = useState<"all" | "whatsapp" | "facebook" | "instagram">("all");
   const [loading, setLoading] = useState(true);
   // Contact-based filters (issue #272). Tags use OR logic (a conversation
   // matches if its contact carries any selected tag), consistent with
@@ -167,6 +168,10 @@ export function ConversationList({
       result = result.filter((c) => c.status === filter);
     }
 
+    if (channelFilter !== "all") {
+      result = result.filter((c) => (c.channel || "whatsapp") === channelFilter);
+    }
+
     // Contact-based filters (tags via OR logic, exact company match).
     if (selectedTagIds.length > 0 || selectedCompany !== null) {
       result = result.filter((c) =>
@@ -188,7 +193,7 @@ export function ConversationList({
     }
 
     return result;
-  }, [conversations, filter, search, selectedTagIds, selectedCompany]);
+  }, [conversations, filter, channelFilter, search, selectedTagIds, selectedCompany]);
 
   const toggleTag = useCallback((id: string) => {
     setSelectedTagIds((prev) =>
@@ -267,8 +272,30 @@ export function ConversationList({
           })}
         </div>
 
-        {/* Secondary filters (Tags / Company) */}
+        {/* Secondary filters (Channel / Tags / Company) */}
         <div className="flex flex-wrap items-center gap-1 pt-0.5">
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              className={cn(
+                "inline-flex items-center justify-center h-6 gap-1 px-2 text-[11px] font-medium rounded-md hover:bg-muted border border-border/60",
+                channelFilter !== "all"
+                  ? "border-primary/40 bg-primary/10 text-primary"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              <span className="capitalize">
+                {channelFilter === "all" ? "All Channels" : channelFilter === "facebook" ? "Facebook" : channelFilter === "instagram" ? "Instagram" : "WhatsApp"}
+              </span>
+              <ChevronDown className="h-3 w-3" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-36">
+              <DropdownMenuItem onClick={() => setChannelFilter("all")}>All Channels</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setChannelFilter("whatsapp")}>WhatsApp</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setChannelFilter("facebook")}>Facebook</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setChannelFilter("instagram")}>Instagram</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
           {tags.length > 0 && (
             <DropdownMenu>
               <DropdownMenuTrigger
@@ -494,11 +521,21 @@ function ConversationItem({
         <div className="flex items-center justify-between gap-1.5">
           <span
             className={cn(
-              "truncate text-sm font-medium",
+              "truncate text-sm font-medium flex items-center gap-1.5",
               isActive ? "text-primary font-semibold" : "text-foreground"
             )}
           >
-            {displayName}
+            <span className="truncate">{displayName}</span>
+            {conversation.channel === "facebook" && (
+              <span className="inline-flex shrink-0 items-center px-1 rounded text-[9px] bg-blue-500/15 text-blue-600 font-semibold border border-blue-500/20">
+                FB
+              </span>
+            )}
+            {conversation.channel === "instagram" && (
+              <span className="inline-flex shrink-0 items-center px-1 rounded text-[9px] bg-pink-500/15 text-pink-600 font-semibold border border-pink-500/20">
+                IG
+              </span>
+            )}
           </span>
           <span className="shrink-0 text-[10px] text-muted-foreground">{timeAgo}</span>
         </div>

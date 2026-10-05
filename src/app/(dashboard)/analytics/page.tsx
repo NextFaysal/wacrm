@@ -19,7 +19,6 @@ import {
   ArrowDownRight,
   Percent,
   Calendar,
-  Watch,
   ExternalLink,
   ChevronRight,
   ShieldCheck,
@@ -56,6 +55,15 @@ interface AnalyticsData {
     pendingCount: number;
     deliverySuccessRatio: number;
     returnRatePct: number;
+    trueNetProfit?: number;
+    trueNetMarginPct?: number;
+    totalExpenses?: number;
+  };
+  unitEconomics?: {
+    totalNetProfit: number;
+    totalExpenses: number;
+    overallMarginPercent: number;
+    averageProfitPerOrder: number;
   };
   topProducts: Array<{
     id: string;
@@ -125,7 +133,7 @@ export default function AnalyticsPage() {
             </Badge>
           </div>
           <p className="text-sm text-muted-foreground mt-1">
-            কোন ঘড়ি সবচেয়ে বেশি বিক্রি হচ্ছে, মোট নিট মুনাফা ও ডেলিভারি সাকসেস রেশিও পর্যবেক্ষণ করুন।
+            কোন পণ্য সবচেয়ে বেশি বিক্রি হচ্ছে, মোট নিট মুনাফা ও ডেলিভারি সাকসেস রেশিও পর্যবেক্ষণ করুন।
           </p>
         </div>
 
@@ -189,12 +197,12 @@ export default function AnalyticsPage() {
         <Card className="border border-border/80 bg-card shadow-sm">
           <CardContent className="p-4 flex items-center justify-between">
             <div className="space-y-1">
-              <p className="text-xs font-medium text-muted-foreground">নিট লাভ (Net Profit)</p>
+              <p className="text-xs font-medium text-muted-foreground">আসল নিট লাভ (True Net Profit)</p>
               <h3 className="text-2xl font-black text-emerald-500">
-                ৳{(summary?.totalProfit || 0).toLocaleString('en-BD')}
+                ৳{(summary?.trueNetProfit ?? summary?.totalProfit ?? 0).toLocaleString('en-BD')}
               </h3>
               <p className="text-[11px] text-muted-foreground">
-                প্রফিট মার্জিন: <strong className="text-foreground">{summary?.profitMarginPct || 0}%</strong>
+                মার্জিন: <strong className="text-foreground">{summary?.trueNetMarginPct ?? summary?.profitMarginPct ?? 0}%</strong> (COD ও রিটার্ন বাদে)
               </p>
             </div>
             <div className="h-11 w-11 rounded-xl bg-emerald-500/10 text-emerald-500 flex items-center justify-center">
@@ -449,16 +457,16 @@ export default function AnalyticsPage() {
         </Card>
       </div>
 
-      {/* Best Selling Watches Section */}
+      {/* Best Selling Products Section */}
       <Card className="border border-border">
         <CardHeader className="p-5 pb-3 flex flex-row items-center justify-between">
           <div>
             <CardTitle className="text-base font-bold text-foreground flex items-center gap-2">
-              <Watch className="h-4 w-4 text-amber-500" />
-              কোন ঘড়ি সবচেয়ে বেশি বিক্রি হচ্ছে (Top Selling Watches Ranking)
+              <Package className="h-4 w-4 text-amber-500" />
+              কোন পণ্য সবচেয়ে বেশি বিক্রি হচ্ছে (Top Selling Products Ranking)
             </CardTitle>
             <CardDescription className="text-xs">
-              সর্বোচ্চ বিক্রিত ঘড়িসমূহের তালিকা, বিক্রির পরিমাণ ও নিট মুনাফা
+              সর্বোচ্চ বিক্রিত পণ্যসমূহের তালিকা, বিক্রির পরিমাণ ও নিট মুনাফা
             </CardDescription>
           </div>
           <Link href="/products">
@@ -470,8 +478,8 @@ export default function AnalyticsPage() {
         <CardContent className="p-5 pt-0">
           {topProducts.length === 0 ? (
             <div className="py-12 text-center text-muted-foreground">
-              <Watch className="mx-auto h-12 w-12 opacity-40 mb-2" />
-              <p className="text-xs">এখনো কোনো ঘড়ি বিক্রির ডেটা নেই।</p>
+              <Package className="mx-auto h-12 w-12 opacity-40 mb-2" />
+              <p className="text-xs">এখনো কোনো পণ্য বিক্রির ডেটা নেই।</p>
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -479,7 +487,7 @@ export default function AnalyticsPage() {
                 <thead>
                   <tr className="border-b border-border bg-muted/30 text-muted-foreground">
                     <th className="py-2.5 px-3 font-semibold">র‌্যাংক</th>
-                    <th className="py-2.5 px-3 font-semibold">ঘড়ির মডেল ও ছবি</th>
+                    <th className="py-2.5 px-3 font-semibold">পণ্যের নাম ও ছবি</th>
                     <th className="py-2.5 px-3 font-semibold text-center">বিক্রিত সংখ্যা</th>
                     <th className="py-2.5 px-3 font-semibold text-right">মোট বিক্রি</th>
                     <th className="py-2.5 px-3 font-semibold text-right">নিট লাভ (Profit)</th>
@@ -517,7 +525,7 @@ export default function AnalyticsPage() {
                             />
                           ) : (
                             <div className="h-10 w-10 rounded-lg bg-muted flex items-center justify-center text-muted-foreground">
-                              <Watch className="h-5 w-5" />
+                              <Package className="h-5 w-5" />
                             </div>
                           )}
                           <div>

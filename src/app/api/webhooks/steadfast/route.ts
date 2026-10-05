@@ -121,6 +121,19 @@ export async function POST(request: Request) {
               }
             }
           }
+        } else if (['hold', 'pending_return', 'delivery_failed', 'rescheduled'].includes(courierStatus)) {
+          if (order.conversation_id) {
+            try {
+              await notifyCustomerCourierUpdate(
+                admin,
+                order,
+                'FAILED_DELIVERY',
+                { trackingCode: trackingId || order.courier_tracking_code || consignmentId }
+              );
+            } catch (e) {
+              console.warn('[steadfast-webhook] RTO alert WhatsApp msg warning:', e);
+            }
+          }
         } else if (courierStatus === 'cancelled') {
           updates.status = 'CANCELLED';
 

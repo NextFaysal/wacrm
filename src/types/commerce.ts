@@ -107,6 +107,12 @@ export interface Order {
   invoice_no?: string | null;
   notes?: string | null;
   idempotency_key?: string | null;
+  call_status?: 'uncalled' | 'called_confirmed' | 'called_no_answer' | 'called_busy' | 'called_cancelled' | 'called_rescheduled' | null;
+  call_attempt_count?: number;
+  last_called_at?: string | null;
+  confirmation_token?: string | null;
+  confirmation_status?: string | null;
+  review_token?: string | null;
   created_at: string;
   updated_at: string;
 }

@@ -82,7 +82,7 @@ export async function POST(request: Request) {
         duration_months: durationMonths,
         starts_at: now.toISOString(),
         expires_at: expiresAt.toISOString(),
-        coverage_details: body.coverage_details?.trim() || `${durationMonths} Months Machine Movement Warranty & 6 Months Battery Replacement`,
+        coverage_details: body.coverage_details?.trim() || `${durationMonths} Months Official Warranty & Service Support`,
         status: 'active',
       })
       .select()

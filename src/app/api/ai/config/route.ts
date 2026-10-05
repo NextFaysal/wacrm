@@ -223,7 +223,7 @@ export async function POST(request: Request) {
       if (upErr) {
         console.error('[ai/config POST] update error:', upErr)
         return NextResponse.json(
-          { error: 'Failed to save AI configuration' },
+          { error: upErr.message || 'Failed to save AI configuration' },
           { status: 500 },
         )
       }
@@ -237,7 +237,7 @@ export async function POST(request: Request) {
       if (insErr) {
         console.error('[ai/config POST] insert error:', insErr)
         return NextResponse.json(
-          { error: 'Failed to save AI configuration' },
+          { error: insErr.message || 'Failed to save AI configuration' },
           { status: 500 },
         )
       }
