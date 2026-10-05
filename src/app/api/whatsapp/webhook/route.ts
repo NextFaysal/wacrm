@@ -738,8 +738,18 @@ async function processMessage(
     })
   }
 
-  // Auto-assign new or currently unassigned conversation via Round-Robin
-  if (convResult.created || !conversation.assigned_agent_id) {
+  // Pre-load AI config to check if the AI agent is the front-line responder
+  const aiConfig = await loadAiConfig(supabaseAdmin(), accountId)
+  const isAiActive = Boolean(
+    aiConfig?.isActive &&
+    aiConfig?.autoReplyEnabled &&
+    !conversation.ai_autoreply_disabled
+  )
+
+  // Auto-assign new or currently unassigned conversation via Round-Robin.
+  // When AI auto-reply is active on this account, the AI acts as the front-line agent;
+  // do NOT auto-assign to a human agent until the AI hands off or is explicitly paused.
+  if (!isAiActive && (convResult.created || !conversation.assigned_agent_id)) {
     const assignedId = await autoAssignConversation(
       supabaseAdmin(),
       accountId,
@@ -1040,7 +1050,6 @@ async function processMessage(
   let commerceHandled = false
   if (!flowConsumed && !interactiveReplyId && inboundText.trim()) {
     try {
-      const aiConfig = await loadAiConfig(supabaseAdmin(), accountId)
       if (aiConfig?.isActive && aiConfig?.autoReplyEnabled) {
         const referralData = message.referral ? {
           source_id: message.referral.source_id,
