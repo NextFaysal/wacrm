@@ -146,8 +146,11 @@ export async function executeAiCommerceAgent(args: ExecuteAgentArgs): Promise<Ag
     });
   };
 
+  // Strip voice note envelope prefix if present so entity extraction and matching work cleanly
+  const effectiveInboundText = inboundText.replace(/^🎙️\s*\[ভয়েস\s*নোট\]:\s*/i, '').trim() || inboundText;
+
   // Extract entities from inbound message
-  const extracted = extractCustomerEntities(inboundText, memory);
+  const extracted = extractCustomerEntities(effectiveInboundText, memory);
 
   // Auto-cancel any pending scheduled follow-ups since customer has messaged
   await AI_COMMERCE_TOOLS.cancel_followup.handler({}, toolCtx);
@@ -285,7 +288,7 @@ export async function executeAiCommerceAgent(args: ExecuteAgentArgs): Promise<Ag
   // ----------------------------------------------------
   const isImageRequest =
     extracted.detectedIntent === 'IMAGE_REQUEST' ||
-    /(ছবি|ফটো|পিক|পিকচার|photo|image|pic|picture|chobi|বাস্তব ছবি|আসল ছবি|রিয়েল ছবি|কালার দেখতে চাই|কালারের ছবি|রং দেখতে চাই|কালারগুলো দেখান|কালার দেখান|color dekhaw|pic den|photo den|chobi den|chobi pathan|image pathan|pic pathan)/i.test(inboundText);
+    /(ছবি|ফটো|পিক|পিকচার|photo|image|pic|picture|chobi|বাস্তব ছবি|আসল ছবি|রিয়েল ছবি|কালার দেখতে চাই|কালারের ছবি|রং দেখতে চাই|কালারগুলো দেখান|কালার দেখান|color dekhaw|pic den|photo den|chobi den|chobi pathan|image pathan|pic pathan)/i.test(effectiveInboundText);
 
   if (isImageRequest && actionSettings.send_product_images) {
     let targetProductId = memory.interested_product_id;
@@ -293,7 +296,7 @@ export async function executeAiCommerceAgent(args: ExecuteAgentArgs): Promise<Ag
 
     if (!targetProductId) {
       // Find matching product by text or fallback to active product
-      const match = await matchProductFromInbound(db, accountId, inboundText, referral, bizCtx);
+      const match = await matchProductFromInbound(db, accountId, effectiveInboundText, referral, bizCtx);
       if (match.matched && match.product) {
         targetProductId = match.product.id;
         targetProductName = match.product.name;
@@ -351,7 +354,7 @@ export async function executeAiCommerceAgent(args: ExecuteAgentArgs): Promise<Ag
   // before running heavy LLMs or RAG loops.
   // ----------------------------------------------------
   if (!extracted.phone && !extracted.fullAddress) {
-    const fastFaq = matchFastStoreFaq(inboundText, bizCtx);
+    const fastFaq = matchFastStoreFaq(effectiveInboundText, bizCtx);
     if (fastFaq.matched && fastFaq.replyText) {
       await reply(fastFaq.replyText);
       await logAudit('fast_faq_match', { text: inboundText, intent: fastFaq.intent }, { success: true });
@@ -362,7 +365,7 @@ export async function executeAiCommerceAgent(args: ExecuteAgentArgs): Promise<Ag
   // ----------------------------------------------------
   // Scenario B4: Standalone Greeting (Hi, Hello, Salam)
   // ----------------------------------------------------
-  if (/^(hi|hello|hey|salam|assalamu\s*alaikum|assalamualaikum|হ্যাল+ও|হাই|সালাম|আসসালামু\s*আলাইকুম)[.!?\s]*$/i.test(inboundText.trim())) {
+  if (/^(hi|hello|hey|salam|assalamu\s*alaikum|assalamualaikum|হ্যাল+ও|হাই|সালাম|আসসালামু\s*আলাইকুম)[.!?\s]*$/i.test(effectiveInboundText.trim())) {
     const greeting = getHumanGreeting({
       customerName: memory.customer_name,
       isReturning: Boolean(memory.order_id),
@@ -374,7 +377,7 @@ export async function executeAiCommerceAgent(args: ExecuteAgentArgs): Promise<Ag
   // ----------------------------------------------------
   // Scenario B5: Shop Location / Showroom Inquiry
   // ----------------------------------------------------
-  if (/দোকান কোথায়|শো-রুম|শোরুম|লোকেশন|ঠিকানা কোথায়|dokan kothay|location kothay|showroom|outlet/i.test(inboundText) && !extracted.phone && !extracted.fullAddress) {
+  if (/দোকান কোথায়|শো-রুম|শোরুম|লোকেশন|ঠিকানা কোথায়|dokan kothay|location kothay|showroom|outlet/i.test(effectiveInboundText) && !extracted.phone && !extracted.fullAddress) {
     await reply(getHumanObjectionResponse('SHOP_LOCATION', bizCtx.storeName));
     return { handled: true };
   }
@@ -382,7 +385,7 @@ export async function executeAiCommerceAgent(args: ExecuteAgentArgs): Promise<Ag
   // ----------------------------------------------------
   // Scenario B6: Bargaining / Discount Request
   // ----------------------------------------------------
-  if (/কম রাখা যাবে|ডিসকাউন্ট হবে|কম হবে|বেশি দাম|দাম বেশি|একটু কমান|discount|dam kom|kom koren/i.test(inboundText)) {
+  if (/কম রাখা যাবে|ডিসকাউন্ট হবে|কম হবে|বেশি দাম|দাম বেশি|একটু কমান|discount|dam kom|kom koren/i.test(effectiveInboundText)) {
     await reply(getHumanObjectionResponse('BARGAIN', bizCtx.storeName));
     return { handled: true };
   }
@@ -396,7 +399,7 @@ export async function executeAiCommerceAgent(args: ExecuteAgentArgs): Promise<Ag
     !memory.interested_product_id;
 
   if (isInitialEntry) {
-    const match = await matchProductFromInbound(db, accountId, inboundText, referral, bizCtx);
+    const match = await matchProductFromInbound(db, accountId, effectiveInboundText, referral, bizCtx);
     if (match.matched && match.product) {
       await transition('PRODUCT_INFORMATION_SENT', {
         interested_product_id: match.product.id,

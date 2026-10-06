@@ -19,7 +19,7 @@ import { dispatchInboundToFlows } from '@/lib/flows/engine'
 import { dispatchInboundToAiReply } from '@/lib/ai/auto-reply'
 import { executeAiCommerceAgent } from '@/lib/ai/agent/executor'
 import { loadAiConfig } from '@/lib/ai/config'
-import { transcribeAudioWithWhisper } from '@/lib/ai/whisper'
+import { transcribeAudio } from '@/lib/ai/whisper'
 import { analyzeWatchImageWithVision } from '@/lib/ai/vision'
 import { dispatchWebhookEvent } from '@/lib/webhooks/deliver'
 import { cancelDelayedFollowup } from '@/lib/queue/queues'
@@ -776,7 +776,8 @@ async function processMessage(
     await parseMessageContent(
       message,
       accessToken,
-      mirrorMedia ? { accountId } : null
+      mirrorMedia ? { accountId } : null,
+      accountId
     )
 
   // Resolve swipe-reply context if present. A missing parent is fine —
@@ -1161,7 +1162,8 @@ async function parseMessageContent(
   accessToken: string,
   // Tenancy + opt-out for the media mirror. Null disables mirroring
   // entirely, which is what the account-level toggle does.
-  mirror: { accountId: string } | null
+  mirror: { accountId: string } | null,
+  accountId?: string
 ): Promise<{
   contentText: string | null
   mediaUrl: string | null
@@ -1320,20 +1322,23 @@ async function parseMessageContent(
       if (message.audio?.id) {
         const mediaUrl = await verifyAndBuildUrl(message.audio.id)
         let transcribedText: string | null = null
-        if (mirror?.accountId) {
+        const targetAccountId = accountId || mirror?.accountId
+        if (targetAccountId) {
           try {
-            const aiConfig = await loadAiConfig(supabaseAdmin(), mirror.accountId)
+            const aiConfig = await loadAiConfig(supabaseAdmin(), targetAccountId)
             if (aiConfig?.isActive && aiConfig.apiKey) {
               const info = await getMediaUrl({ mediaId: message.audio.id, accessToken })
               const { buffer } = await downloadMedia({ downloadUrl: info.url, accessToken })
-              const transcript = await transcribeAudioWithWhisper({
+              const transcript = await transcribeAudio({
                 apiKey: aiConfig.apiKey,
+                provider: aiConfig.provider,
+                model: aiConfig.model,
                 audioBuffer: buffer,
                 mimeType: message.audio.mime_type,
                 language: 'bn',
               })
-              if (transcript) {
-                transcribedText = `🎙️ [ভয়েস নোট]: ${transcript}`
+              if (transcript && transcript.trim()) {
+                transcribedText = `🎙️ [ভয়েস নোট]: ${transcript.trim()}`
               }
             }
           } catch (audioErr) {
