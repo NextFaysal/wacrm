@@ -53,14 +53,27 @@ export function buildBanglaSalesPrompt(args: BuildSalesPromptArgs): string {
     'অফিশিয়াল প্যাকেজিং ও ক্যাশ অন ডেলিভারিতে চেক করে নেওয়ার সুবিধা।';
   const minQtyFree = context.freeDeliveryMinQty ?? 2;
 
+  const specLabels = context.specLabels || ['মডেল / স্পেক ১', 'স্পেক ২', 'স্পেক ৩', 'স্পেক ৪'];
+
   const catalogSummary = activeProducts.slice(0, 10).map((p) => {
     const regular = p.regular_price ? ` (পূর্বে ৳${p.regular_price})` : '';
     const stockStatus = p.stock_quantity > 0 ? `Stock: ${p.stock_quantity}` : 'Out of Stock';
     const specs: string[] = [];
     if (p.category) specs.push(`Category: ${p.category}`);
-    if (p.colors?.length) specs.push(`Variants: ${p.colors.join(', ')}`);
-    if (p.strap_type) specs.push(`Spec 4: ${p.strap_type}`);
-    if (p.water_resistance) specs.push(`Spec 2: ${p.water_resistance}`);
+    if (p.colors?.length) specs.push(`Variants/Colors: ${p.colors.join(', ')}`);
+    if (p.dial_size) specs.push(`${specLabels[0] || 'Size'}: ${p.dial_size}`);
+    if (p.movement) specs.push(`${specLabels[1] || 'Type'}: ${p.movement}`);
+    if (p.water_resistance) specs.push(`${specLabels[2] || 'Spec 3'}: ${p.water_resistance}`);
+    if (p.strap_type) specs.push(`${specLabels[3] || 'Material'}: ${p.strap_type}`);
+    if (p.variants?.length) {
+      const variantNames = p.variants.map((v) => v.name).filter(Boolean).slice(0, 4);
+      if (variantNames.length) specs.push(`Options: ${variantNames.join(', ')}`);
+    }
+    if (p.custom_attributes?.length) {
+      for (const attr of p.custom_attributes.slice(0, 3)) {
+        if (attr.key && attr.value) specs.push(`${attr.key}: ${attr.value}`);
+      }
+    }
     if (p.warranty_months) specs.push(`Warranty: ${p.warranty_months}m`);
     if (p.image_url || p.images?.length || p.variants?.some((v) => v.image_url)) specs.push('Photos: Available in DB');
 
@@ -97,7 +110,7 @@ ${customSystemPrompt ? `### ⭐ PRIMARY MERCHANT INSTRUCTIONS & STORE POLICIES (
      IMMEDIATELY invoke the \`send_product_images\` tool with \`productId\` (and \`color\` if a specific color was requested)!
    - ⚠️ STRICT RULE: NEVER invent, make up, or hallucinate image URLs or Unsplash links.
    - ⚠️ STRICT RULE: NEVER write markdown image tags like \`![image](url)\` or raw links in your reply text. WhatsApp CANNOT display markdown image tags. The \`send_product_images\` tool sends the real photo directly as an official WhatsApp media message.
-   - In your message text, politely confirm in Bengali that you have sent the official photo to their WhatsApp (e.g. "জি ভাইয়া/আপু, আমি ঘড়ির আসল ছবি হোয়াটসঅ্যাপে পাঠিয়ে দিয়েছি, দেখে জানান কেমন লাগলো 😊").
+   - In your message text, politely confirm in Bengali that you have sent the official photo to their WhatsApp (e.g. "জি ভাইয়া/আপু, আমি ${productNoun}-এর আসল ছবি হোয়াটসঅ্যাপে পাঠিয়ে দিয়েছি, দেখে জানান কেমন লাগলো 😊").
 4. **Persuasive Sales & Trust Building**:
    - Value focus: 100% Original, Premium Look & Feel, Durable Quality, Customer Satisfaction.
    - Countrywide Cash on Delivery (COD): Customer can open and inspect the product before paying the delivery agent.
@@ -130,7 +143,11 @@ When the customer provides these details:
 
 ### EXACT STORE STANDARD REPLIES (আমাদের স্ট্যান্ডার্ড সাধারণ উত্তরসমূহ — সবসময় এই কথাগুলো ব্যবহার করবেন)
 1. **ডেলিভারির সময় (Delivery Time):** "আমাদের ডেলিভারি সাধারণত ঢাকার ভিতরে ${insideDeliveryTime} এবং ঢাকার বাহিরে ${outsideDeliveryTime} সময় লাগতে পারে।"
-2. **ডেলিভারি চার্জ ও ক্যাশ অন ডেলিভারি:** "সারা বাংলাদেশে ক্যাশ অন হোম ডেলিভারি সুবিধা রয়েছে। পার্সেল রিসিভ করার সময় চেক করে দেখে টাকা পরিশোধ করতে পারবেন।"
+2. **ডেলিভারি চার্জ ও ক্যাশ অন ডেলিভারি:** ${
+  context.advanceChargeRequired
+    ? `"আমাদের ডেলিভারি চার্জ ঢাকার ভিতরে ৳${context.insideDhakaCharge ?? 60} এবং ঢাকার বাহিরে ৳${context.outsideDhakaCharge ?? 120}। ডেলিভারি চার্জ ৳${context.advanceDeliveryFee ?? 150} অগ্রিম বিকাশ/নগদে পরিশোধ করতে হবে এবং বাকি টাকা পার্সেল রিসিভ করার সময় পরিশোধ করবেন।"`
+    : `"সারা বাংলাদেশে ক্যাশ অন হোম ডেলিভারি সুবিধা রয়েছে। পার্সেল রিসিভ করার সময় চেক করে দেখে টাকা পরিশোধ করতে পারবেন।"`
+}
 3. **অর্ডার কনফার্মেশন (Order Confirmation):** "আপনার অর্ডারটি কনফার্ম করা হয়েছে আশা করি দ্রুত সময়ের মধ্যে পেয়ে যাবেন, আমাদের সাথে থাকার জন্য ধন্যবাদ।" (সাথে পণ্যের বিবরণ, মোট মূল্য ও কুরিয়ার ট্র্যাকিং কোড যুক্ত করবেন)।
 4. **নাম ঠিকানা সংগ্রহ (Collecting Customer Info):** "আপনার নাম, সম্পূর্ণ ঠিকানা এবং মোবাইল নাম্বারটি দিন (থানা এবং জেলার নামটা দিলে সুবিধা হয়)"
 5. **কাস্টমার পরে নিতে চাইলে বা কোনো কারণে দ্বিধাবোধ করলে (No Problem / Future Purchase):** "কোন ব্যাপার না আমাদের সাথে থাকার জন্য ধন্যবাদ 🥰"

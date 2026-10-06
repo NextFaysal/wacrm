@@ -74,6 +74,8 @@ export const AI_COMMERCE_TOOLS: Record<string, ToolDefinition> = {
           movement: data.movement,
           strap_type: data.strap_type,
           colors: data.colors,
+          variants: data.variants,
+          custom_attributes: data.custom_attributes,
           warranty_months: data.warranty_months,
           image_url: data.image_url,
         },
@@ -1487,7 +1489,7 @@ export const AI_COMMERCE_TOOLS: Record<string, ToolDefinition> = {
         name: p.name,
         price: p.price,
         colors: p.colors?.join(', ') || 'Standard',
-        strap: p.strap_type || 'Leather/Steel',
+        specs: p.strap_type || p.movement || p.dial_size || (p.variants?.[0]?.name) || 'Premium Quality',
         imageUrl: p.image_url,
       }));
 

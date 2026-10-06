@@ -58,6 +58,7 @@ export interface BusinessTypePreset {
   label: string;
   defaultStoreName: string;
   defaultTagline: string;
+  defaultProductNoun: string;
   defaultSpecs: {
     spec_label_1: string;
     spec_label_2: string;
@@ -73,6 +74,7 @@ export const BUSINESS_TYPE_PRESETS: Record<BusinessType, BusinessTypePreset> = {
     label: 'General E-Commerce (যেকোনো পণ্য)',
     defaultStoreName: 'My Online Store',
     defaultTagline: 'সেরা কোয়ালিটি ও দ্রুত ডেলিভারির নিশ্চয়তা',
+    defaultProductNoun: 'পণ্য',
     defaultSpecs: {
       spec_label_1: 'মডেল / কোড',
       spec_label_2: 'ম্যাটেরিয়াল / উপাদান',
@@ -86,6 +88,7 @@ export const BUSINESS_TYPE_PRESETS: Record<BusinessType, BusinessTypePreset> = {
     label: 'Watches & Timepieces (ঘড়ি ও ওয়াচ)',
     defaultStoreName: 'Watch Vault BD',
     defaultTagline: 'প্রিমিয়াম কোয়ালিটি লাক্সারি ও ক্যাজুয়াল ঘড়ি',
+    defaultProductNoun: 'ঘড়ি',
     defaultSpecs: {
       spec_label_1: 'ডায়াল সাইজ',
       spec_label_2: 'মুভমেন্ট ইঞ্জিন',
@@ -99,6 +102,7 @@ export const BUSINESS_TYPE_PRESETS: Record<BusinessType, BusinessTypePreset> = {
     label: 'Fashion & Clothing (পোশাক ও ফ্যাশন)',
     defaultStoreName: 'Fashion Hub BD',
     defaultTagline: 'আধুনিক ট্রেন্ডি ফ্যাশন পোশাকের বিশ্বস্ত কালেকশন',
+    defaultProductNoun: 'পোশাক',
     defaultSpecs: {
       spec_label_1: 'ফেব্রিক / উপাদান',
       spec_label_2: 'ফিটিং / সাইজ চার্ট',
@@ -112,6 +116,7 @@ export const BUSINESS_TYPE_PRESETS: Record<BusinessType, BusinessTypePreset> = {
     label: 'Electronics & Gadgets (ইলেকট্রনিক্স ও গ্যাজেট)',
     defaultStoreName: 'Gadget Store BD',
     defaultTagline: 'লেটেস্ট গ্যাজেট ও ইলেকট্রনিক্স অ্যাক্সেসরিজ',
+    defaultProductNoun: 'গ্যাজেট',
     defaultSpecs: {
       spec_label_1: 'মডেল ও প্রসেসর',
       spec_label_2: 'ব্যাটারি লাইফ / ব্যাকআপ',
@@ -125,6 +130,7 @@ export const BUSINESS_TYPE_PRESETS: Record<BusinessType, BusinessTypePreset> = {
     label: 'Food & Organic Items (খাবার ও অর্গানিক ফুড)',
     defaultStoreName: 'Pure Organics BD',
     defaultTagline: '১০০% খাঁটি ও নির্ভেজাল খাবার আপনার দোড়গোড়ায়',
+    defaultProductNoun: 'খাবার',
     defaultSpecs: {
       spec_label_1: 'উৎস ও উপাদান',
       spec_label_2: 'নেট ওজন / পরিমাণ',
@@ -138,6 +144,7 @@ export const BUSINESS_TYPE_PRESETS: Record<BusinessType, BusinessTypePreset> = {
     label: 'Cosmetics & Beauty (কসমেটিক্স ও রূপচর্চা)',
     defaultStoreName: 'Beauty Lounge BD',
     defaultTagline: 'প্রাকৃতিক ও প্রিমিয়াম বিউটি স্কিনকেয়ার প্রডাক্ট',
+    defaultProductNoun: 'প্রোডাক্ট',
     defaultSpecs: {
       spec_label_1: 'স্কিন টাইপ উপযোগী',
       spec_label_2: 'মূল উপাদানসমূহ',
@@ -151,6 +158,7 @@ export const BUSINESS_TYPE_PRESETS: Record<BusinessType, BusinessTypePreset> = {
     label: 'Bags, Wallets & Accessories (ব্যাগ ও অ্যাক্সেসরিজ)',
     defaultStoreName: 'Leather Craft BD',
     defaultTagline: 'জেনুইন লেদার ওয়ালেট, বেল্ট ও ব্যাগ কালেকশন',
+    defaultProductNoun: 'ব্যাগ/আইটেম',
     defaultSpecs: {
       spec_label_1: 'লেদার টাইপ',
       spec_label_2: 'চেম্বার / পকেট সংখ্যা',
@@ -164,6 +172,7 @@ export const BUSINESS_TYPE_PRESETS: Record<BusinessType, BusinessTypePreset> = {
     label: 'Home Decor & Living (ঘর সাজানো ও লাইফস্টাইল)',
     defaultStoreName: 'Home Lifestyle BD',
     defaultTagline: 'আপনার ঘর সাজাতে দৃষ্টিনন্দন ডেকোর কালেকশন',
+    defaultProductNoun: 'পণ্য',
     defaultSpecs: {
       spec_label_1: 'ম্যাটেরিয়াল কোয়ালিটি',
       spec_label_2: 'সাইজ ও মেজারমেন্ট',

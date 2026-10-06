@@ -331,7 +331,7 @@ export async function executeAiCommerceAgent(args: ExecuteAgentArgs): Promise<Ag
     !memory.interested_product_id;
 
   if (isInitialEntry) {
-    const match = await matchProductFromInbound(db, accountId, inboundText, referral);
+    const match = await matchProductFromInbound(db, accountId, inboundText, referral, bizCtx);
     if (match.matched && match.product) {
       await transition('PRODUCT_INFORMATION_SENT', {
         interested_product_id: match.product.id,
@@ -735,49 +735,84 @@ export async function executeAiCommerceAgent(args: ExecuteAgentArgs): Promise<Ag
   }
 
   // ----------------------------------------------------
-  // Scenario F: Product Questions (Waterproof, Battery, Material, Warranty, Delivery)
+  // Scenario F: Dynamic Product Questions (Material, Size, Battery, Warranty, Delivery, Purity)
   // ----------------------------------------------------
   if (currentProduct) {
     const q = inboundText.toLowerCase();
+    const bType = bizCtx.businessType || 'general';
 
+    // 1. Water Resistance (Watches & Electronics only)
     if (/waterproof|পানি লাগলে|water resistant|পানি নিরোধক/i.test(q)) {
       if (currentProduct.water_resistance) {
         await reply(`এটির স্পেসিফিকেশন হলো ${currentProduct.water_resistance}। কিছুটা পানি প্রতিরোধ করতে পারে (হালকা পানিতে সমস্যা হবে না)। 🛡️`);
         return { handled: true };
+      } else if (bType === 'watches' || bType === 'electronics') {
+        await reply('এই মডেলটি সাধারণ ব্যবহারের জন্য তৈরি। পানিতে ভেজানো বা ডুবিয়ে রাখা থেকে দূরে রাখলে দীর্ঘস্থায়ী সার্ভিস পাবেন। 🛡️');
+        return { handled: true };
       }
     }
 
-    if (/warranty|ওয়ারেন্টি|গ্যারান্টি|কতদিন|মেশিন|কালার/i.test(q)) {
-      const warrantyMonths = currentProduct.warranty_months ? `${currentProduct.warranty_months} মাসের অফিশিয়াল ওয়ারেন্টি` : bizCtx.warrantyPolicy;
-      await reply(`${warrantyMonths} থাকবে এবং পার্সেল রিসিভ করার সময় চেক করে নেওয়ার সুযোগ রয়েছে। 😊`);
+    // 2. Warranty / Guarantee / Quality Assurance
+    if (/warranty|ওয়ারেন্টি|গ্যারান্টি|কতদিন|মেশিন|কালার নষ্ট|নষ্ট হলে|সার্ভিসিং/i.test(q)) {
+      const warrantyText = currentProduct.warranty_months
+        ? `${currentProduct.warranty_months} মাসের অফিশিয়াল ওয়ারেন্টি`
+        : bizCtx.warrantyPolicy;
+      await reply(`${warrantyText} থাকবে এবং পার্সেল রিসিভ করার সময় চেক করে নেওয়ার পুরো সুযোগ রয়েছে। 😊`);
       return { handled: true };
     }
 
-    if (/delivery|ডেলিভারি|কবে পাব|কতদিন|সময় লাগ/i.test(q)) {
+    // 3. Delivery Time
+    if (/delivery|ডেলিভারি|কবে পাব|কতদিন|সময় লাগ|কখন পাব/i.test(q)) {
       await reply(`আমাদের ডেলিভারি সাধারণত ঢাকার ভিতরে ${bizCtx.deliveryInsideDhaka} এবং ঢাকার বাহিরে ${bizCtx.deliveryOutsideDhaka} সময় লাগতে পারে। 🚚`);
       return { handled: true };
     }
 
-    if (/battery|ব্যাটারি|ব্যাটারী|ব্যাকআপ/i.test(q)) {
-      if (bizCtx.businessType === 'watches' || bizCtx.businessType === 'electronics') {
+    // 4. Battery / Charging (Electronics & Watches)
+    if (/battery|ব্যাটারি|ব্যাটারী|ব্যাকআপ|চার্জ|power/i.test(q)) {
+      if (bType === 'watches' || bType === 'electronics') {
         await reply('এটিতে হাই কোয়ালিটি লং লাস্টিং ব্যাটারি দেওয়া আছে যা দীর্ঘস্থায়ী ব্যাকআপ দেয়। 🔋');
         return { handled: true };
       }
     }
 
-    if (/strap|চেইন|বেল্ট|material|ম্যাটেরিয়াল|ফেব্রিক/i.test(q)) {
-      const material = currentProduct.strap_type || currentProduct.movement || 'উন্নত মানের প্রিমিয়াম উপাদান';
-      await reply(`এটির উপাদান/ম্যাটেরিয়াল হলো: ${material}। গুণগত মান অত্যন্ত আরামদায়ক ও টেকসই। ✨`);
-      return { handled: true };
+    // 5. Material, Fabric, Leather, or Ingredients
+    if (/strap|চেইন|বেল্ট|material|ম্যাটেরিয়াল|ফেব্রিক|কাপড়|সুতি|কটন|লেদার|উপাদান/i.test(q)) {
+      if (bType === 'fashion') {
+        await reply('এটির ফেব্রিক অত্যন্ত উন্নত মানের, নরম ও আরামদায়ক। কালার বা ফিনিশিং নিয়ে সম্পূর্ণ নিশ্চিন্ত থাকতে পারেন। ✨');
+        return { handled: true };
+      } else if (bType === 'accessories') {
+        await reply('এটিতে প্রিমিয়াম কোয়ালিটি জেনুইন লেদার/ম্যাটেরিয়াল ব্যবহার করা হয়েছে। ফিনিশিং ও স্টিচিং অত্যন্ত নিখুঁত ও টেকসই। ✨');
+        return { handled: true };
+      } else if (bType === 'food') {
+        await reply('এটি ১০০% খাঁটি, প্রাকৃতিক ও নিরাপদ উপাদান থেকে তৈরি। কোনো ভেজাল বা প্রিজারভেটিভ নেই। 🍃');
+        return { handled: true };
+      } else {
+        const material = currentProduct.strap_type || currentProduct.movement || 'উন্নত মানের প্রিমিয়াম উপাদান';
+        await reply(`এটির উপাদান/ম্যাটেরিয়াল হলো: ${material}। গুণগত মান অত্যন্ত আরামদায়ক ও টেকসই। ✨`);
+        return { handled: true };
+      }
     }
 
-    if (/dial|সাইজ|size|ডায়াল/i.test(q)) {
-      const size = currentProduct.dial_size || 'স্ট্যান্ডার্ড সাইজ';
-      await reply(`এটির সাইজ/পরিমাপ হলো: ${size}। ব্যবহার করতে অত্যন্ত চমৎকার ও মানানসই লুক দেয়। ✨`);
-      return { handled: true };
+    // 6. Size, Dial, Fitting, or Measurements
+    if (/dial|সাইজ|size|ডায়াল|ফিটিং|মাপ|চার্ট/i.test(q)) {
+      if (bType === 'fashion') {
+        const variantList = currentProduct.variants?.map((v) => v.name).filter(Boolean);
+        const avail = variantList?.length ? ` (Available: ${variantList.join(', ')})` : '';
+        await reply(`আমাদের সাইজ চার্ট অত্যন্ত স্ট্যান্ডার্ড ও পারফেক্ট ফিটিং${avail}। আপনার পছন্দের সাইজটি জানাতে পারেন। সাইজ মিসম্যাচ হলে তাৎক্ষণিক এক্সচেঞ্জ সুবিধাও রয়েছে! ✨`);
+        return { handled: true };
+      } else if (bType === 'watches') {
+        const size = currentProduct.dial_size || 'স্ট্যান্ডার্ড সাইজ';
+        await reply(`এটির ডায়াল সাইজ হলো: ${size}। হাতে পরলে অত্যন্ত আকর্ষণীয় ও মানানসই লুক দেয়। ✨`);
+        return { handled: true };
+      } else {
+        const size = currentProduct.dial_size || 'স্ট্যান্ডার্ড সাইজ';
+        await reply(`এটির সাইজ/পরিমাপ হলো: ${size}। ব্যবহার করতে অত্যন্ত চমৎকার ও মানানসই। ✨`);
+        return { handled: true };
+      }
     }
 
-    if (/color|কালার|রং|variant|ভেরিয়েন্ট/i.test(q)) {
+    // 7. Colors & Variants
+    if (/color|কালার|রং|variant|ভেরিয়েন্ট|ডিজাইন/i.test(q)) {
       const colors = currentProduct.colors?.length ? currentProduct.colors.join(', ') : 'স্ট্যান্ডার্ড';
       await reply(`এই মডেলটি বর্তমানে *${colors}* অপশনে available আছে। আপনি কোনটি নিতে চান? 😊`);
       return { handled: true };

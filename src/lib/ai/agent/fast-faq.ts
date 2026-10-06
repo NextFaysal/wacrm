@@ -85,6 +85,13 @@ export function matchFastStoreFaq(
   if (
     /দেখে নেওয়া|চেক করে|খুলে দেখা|ক্যাশ অন ডেলিভারি|cod|দেখে টাকা|আগে দেখে|প্যাকেট খুলে|ডেলিভারিম্যানের সামনে/i.test(q)
   ) {
+    if (ctx.advanceChargeRequired) {
+      return {
+        matched: true,
+        intent: 'COD_VERIFICATION',
+        replyText: `জি অবশ্যই! ক্যাশ অন ডেলিভারিতে চেক করে নেওয়ার সুবিধা রয়েছে। তবে ডেলিভারি চার্জ মাত্র ৳${ctx.advanceDeliveryFee ?? 150} অগ্রিম পরিশোধ করতে হবে এবং বাকি টাকা পার্সেল দেখে পরিশোধ করবেন। ✨`,
+      };
+    }
     return {
       matched: true,
       intent: 'COD_VERIFICATION',

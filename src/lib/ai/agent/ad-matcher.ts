@@ -9,13 +9,16 @@ export interface AdMatchResult {
   initialPitchText?: string;
 }
 
+import type { BusinessContext } from '../business-context';
+import { loadBusinessContext } from '../business-context';
 import { cacheGet, cacheSet } from '@/lib/redis/cache';
 
 export async function matchProductFromInbound(
   db: SupabaseClient,
   accountId: string,
   text: string,
-  referral?: AdReferralData | null
+  referral?: AdReferralData | null,
+  businessContext?: Partial<BusinessContext>
 ): Promise<AdMatchResult> {
   // 1. Fetch active products from Redis cache or database
   const cacheKey = `products:active:${accountId}`;
@@ -104,6 +107,9 @@ export async function matchProductFromInbound(
     colorImages.push({ color: colorsLabel, imageUrl: matchedProduct.image_url });
   }
 
+  // Resolve business context
+  const ctx = businessContext || (await loadBusinessContext(accountId, db));
+
   // Generate short, high-converting WhatsApp offer pitch
   const regular = matchedProduct.regular_price ? ` (পূর্বে ৳${matchedProduct.regular_price.toLocaleString('en-BD')})` : '';
   const price = matchedProduct.price.toLocaleString('en-BD');
@@ -111,14 +117,23 @@ export async function matchProductFromInbound(
 
   const bonusLine = matchedProduct.warranty_months
     ? `🛡️ সাথে পাচ্ছেন ${matchedProduct.warranty_months} মাসের অফিশিয়াল ওয়ারেন্টি কার্ড।`
-    : `⭐ ১০০% প্রিমিয়াম ও অরিজিনাল কোয়ালিটি নিশ্চিত।`;
+    : ctx.warrantyPolicy
+      ? `🛡️ ${ctx.warrantyPolicy}`
+      : `⭐ ১০০% প্রিমিয়াম ও অরিজিনাল কোয়ালিটি নিশ্চিত।`;
+
+  const codText = ctx.advanceChargeRequired
+    ? `🚚 ডেলিভারি চার্জ মাত্র ৳${ctx.advanceDeliveryFee ?? 150} অগ্রিম, বাকি টাকা ক্যাশ অন ডেলিভারিতে চেক করে পরিশোধ করবেন।`
+    : `🚚 সারা বাংলাদেশে ক্যাশ অন হোম ডেলিভারিতে চেক করে নেওয়ার সুবিধা।`;
+
+  const bonusOffer = ctx.bonusOffer ? `🎁 ${ctx.bonusOffer}\n` : '';
 
   const initialPitchText =
-    `🔥 আমাদের *Super Offer* চলছে!\n\n` +
+    `🔥 আমাদের *${ctx.storeName || 'Super Offer'}* চলছে!\n\n` +
     `*${matchedProduct.name}*\n` +
     `💵 অফার মূল্য মাত্র *৳${price}*${regular}!\n` +
-    `🚚 সারা বাংলাদেশে ক্যাশ অন হোম ডেলিভারি সুবিধা।\n` +
-    `${bonusLine}\n\n` +
+    `${codText}\n` +
+    `${bonusLine}\n` +
+    (bonusOffer ? `${bonusOffer}\n` : '') +
     (colorsText ? `Available: *${colorsText}*\n\n` : '') +
     `আপনি কোনটি নিতে চান? 😊`;
 

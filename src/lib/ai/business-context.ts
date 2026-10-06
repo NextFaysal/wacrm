@@ -122,7 +122,7 @@ export async function loadBusinessContext(
       businessType: bType,
       businessTypeLabel: preset.label,
       tagline: biz?.tagline || preset.defaultTagline,
-      productNoun: bType === 'food' ? 'আইটেম' : 'পণ্য',
+      productNoun: preset.defaultProductNoun || 'পণ্য',
       warrantyPolicy,
       bonusOffer,
       specLabels: [
