@@ -134,7 +134,9 @@ async function handleCronFollowups(request: Request) {
     if (
       (conv?.ai_followup_count || 0) >= 3 ||
       conv?.ai_state === 'FUTURE_PURCHASE' ||
-      conv?.ai_state === 'DECLINED'
+      conv?.ai_state === 'DECLINED' ||
+      conv?.ai_state === 'COMPLETED' ||
+      conv?.ai_state === 'ORDER_CREATED'
     ) {
       await db.from('ai_followups').update({ status: 'cancelled' }).eq('id', item.id);
       cancelledCount++;
