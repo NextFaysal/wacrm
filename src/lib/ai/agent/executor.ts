@@ -200,6 +200,25 @@ export async function executeAiCommerceAgent(args: ExecuteAgentArgs): Promise<Ag
   }
 
   // ----------------------------------------------------
+  // Scenario A1: Customer requests to cancel order
+  // ----------------------------------------------------
+  if (extracted.detectedIntent === 'ORDER_CANCEL_REQUEST') {
+    const cancelRes = (await AI_COMMERCE_TOOLS.cancel_order.handler(
+      {
+        orderId: extracted.invoiceNo || memory.order_id,
+        reason: effectiveInboundText,
+      },
+      toolCtx
+    )) as any;
+
+    if (cancelRes?.replyText) {
+      await reply(cancelRes.replyText);
+      await logAudit('cancel_order_request', { text: inboundText }, cancelRes);
+      return { handled: true, nextState: 'COMPLETED' };
+    }
+  }
+
+  // ----------------------------------------------------
   // Scenario B: Customer indicates they won't buy now ("এখন নেব না", "পরে নেব", "এখন না")
   // Stop all follow-ups immediately and permanently for this conversation
   // ----------------------------------------------------

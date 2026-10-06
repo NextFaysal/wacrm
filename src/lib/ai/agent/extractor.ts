@@ -145,9 +145,17 @@ export function extractCustomerEntities(text: string, existingMemory: Conversati
     /(অন্য মডেল|অন্যান্য প্রোডাক্ট|অন্যান্য পণ্য|আর কি আছে|ক্যাটালগ|অন্য ডিজাইন|catalogue|ar ki model|অন্য কোনো প্রোডাক্ট)/i.test(trimmed)
   ) {
     result.detectedIntent = 'RECOMMENDATION_INQUIRY';
+  } else if (
+    /(অর্ডার বাতিল|অর্ডার ক্যান্সেল|অর্ডারটি বাতিল|cancel order|cancel my order|পার্সেল বাতিল|অর্ডার cancel|orderটি বাতিল|অর্ডার বাতিল করুন|অর্ডার ক্যান্সেল করুন)/i.test(trimmed)
+  ) {
+    result.detectedIntent = 'ORDER_CANCEL_REQUEST';
+  } else if (
+    /(ঠিকানা পরিবর্তন|নাম্বার পরিবর্তন|ফোন পরিবর্তন|কালার পরিবর্তন|ভেরিয়েন্ট পরিবর্তন|অর্ডারের ঠিকানা|ঠিকানা চেঞ্জ|এড্রেস চেঞ্জ|address change|number change|update order|অর্ডার পরিবর্তন)/i.test(trimmed)
+  ) {
+    result.detectedIntent = 'ORDER_UPDATE_REQUEST';
   } else if (/(নিতে চাই|অর্ডার করবো|order korbo|order korte chai|order করতে চাই|একটি দেন|১টি দেন|একটা পাঠান|send me one|বুক করতে চাই|কনফার্ম|confirm|অর্ডার কনফার্ম|হ্যাঁ কনফার্ম|ঠিক আছে পাঠিয়ে দেন|ঠিক আছে দেন|পাঠাই দেন)/i.test(trimmed)) {
     result.detectedIntent = 'PURCHASE_INTENT';
-  } else if (/(এখন নেব না|এখন নিব না|পরে নেব|পরে নিবো|এখন না|লাগবে না|টাকা নাই|পরে জানাব|কালকে নেব|কালকে জানাব|অন্য সময় নিব|ক্যান্সেল|বাতিল|pore nebo|ekhon na|lagbe na|ekhon nebo na|ar lagbe na|cancel|লাগবেনা|বাতিল করুন|অর্ডার বাতিল)/i.test(trimmed)) {
+  } else if (/(এখন নেব না|এখন নিব না|পরে নেব|পরে নিবো|এখন না|লাগবে না|টাকা নাই|পরে জানাব|কালকে নেব|কালকে জানাব|অন্য সময় নিব|ক্যান্সেল|বাতিল|pore nebo|ekhon na|lagbe na|ekhon nebo na|ar lagbe na|cancel|লাগবেনা)/i.test(trimmed)) {
     result.detectedIntent = 'FUTURE_PURCHASE';
   } else if (/(দাম কত|price koto|koto dam|rate koto|অফার কি)/i.test(trimmed)) {
     result.detectedIntent = 'PRICE_INQUIRY';

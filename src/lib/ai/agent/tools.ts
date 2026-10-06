@@ -799,6 +799,284 @@ export const AI_COMMERCE_TOOLS: Record<string, ToolDefinition> = {
     },
   },
 
+  // 8d. update_order
+  update_order: {
+    name: 'update_order',
+    description: 'Update customer address, phone number, variant, quantity, or notes for an active order before it is shipped.',
+    parameters: {
+      type: 'object',
+      properties: {
+        orderId: { type: 'string', description: 'Order ID or Invoice Number. If omitted, uses current customer active order.' },
+        customerName: { type: 'string', description: 'Updated customer full name' },
+        customerPhone: { type: 'string', description: 'Updated 11-digit mobile number' },
+        fullAddress: { type: 'string', description: 'Updated full delivery address' },
+        thana: { type: 'string', description: 'Updated Thana / Upazila' },
+        district: { type: 'string', description: 'Updated District' },
+        variant: { type: 'string', description: 'Updated color/size variant' },
+        quantity: { type: 'number', description: 'Updated quantity' },
+        notes: { type: 'string', description: 'Additional instructions or landmark' },
+      },
+    },
+    handler: async (args, ctx) => {
+      let query = ctx.db.from('orders').select('*').eq('account_id', ctx.accountId);
+      const searchKey = args.orderId ? String(args.orderId).trim() : null;
+      if (searchKey) {
+        query = query.or(`id.eq.${searchKey},invoice_no.ilike.%${searchKey}%`);
+      } else if (ctx.memory.order_id) {
+        query = query.eq('id', ctx.memory.order_id);
+      } else if (ctx.memory.customer_phone) {
+        query = query.eq('customer_phone', ctx.memory.customer_phone);
+      } else {
+        query = query.eq('conversation_id', ctx.conversationId);
+      }
+
+      const { data: orders, error } = await query.order('created_at', { ascending: false }).limit(1);
+      if (error || !orders || orders.length === 0) {
+        return {
+          success: false,
+          error: 'No order found to update.',
+          replyText: 'আপনার কোনো পূর্ববর্তী অর্ডার পাওয়া যায়নি। যে অর্ডারের তথ্য পরিবর্তন করতে চান তার ইনভয়েস নম্বর বা ফোন নম্বরটি জানালে চেক করে দিচ্ছি। 😊',
+        };
+      }
+
+      const order = orders[0];
+
+      if (order.status === 'CANCELLED') {
+        return {
+          success: false,
+          error: 'Cannot update cancelled order.',
+          replyText: `আপনার এই অর্ডারটি (#${order.invoice_no || order.id.slice(0, 8)}) ইতিমধ্যে বাতিল করা হয়েছে। নতুন কোনো পণ্য অর্ডার করতে চাইলে জানাতে পারেন। 😊`,
+        };
+      }
+
+      if (['SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERED'].includes(order.status)) {
+        return {
+          success: false,
+          error: 'Cannot update shipped order automatically.',
+          replyText: `দুঃখিত, আপনার অর্ডারটি (#${order.invoice_no || order.id.slice(0, 8)}) ইতিমধ্যে কুরিয়ারে পাঠানো হয়েছে, তাই তথ্য স্বয়ংক্রিয়ভাবে পরিবর্তন করা সম্ভব হচ্ছে না। জরুরী পরিবর্তনের জন্য আমাদের সাপোর্ট টিমের সাথে কথা বলুন।`,
+        };
+      }
+
+      const updates: Record<string, any> = {
+        updated_at: new Date().toISOString(),
+      };
+
+      if (args.customerName) updates.customer_name = String(args.customerName).trim();
+      if (args.customerPhone) {
+        const phoneVal = validateBDPhone(String(args.customerPhone));
+        if (phoneVal.valid && phoneVal.normalized) {
+          updates.customer_phone = phoneVal.normalized;
+        }
+      }
+
+      if (args.fullAddress || args.district || args.thana) {
+        const loc = normalizeBdLocation(
+          String(args.fullAddress || order.customer_address),
+          args.district ? String(args.district) : order.district,
+          args.thana ? String(args.thana) : order.thana
+        );
+        if (args.fullAddress) updates.customer_address = String(args.fullAddress).trim();
+        updates.district = loc.district;
+        if (loc.thana || args.thana) updates.thana = loc.thana || String(args.thana).trim();
+      }
+
+      if (args.variant) updates.variant = String(args.variant).trim();
+      if (args.notes) updates.notes = String(args.notes).trim();
+
+      // Quantity change: handle stock & total recalculation
+      if (args.quantity && Number(args.quantity) > 0 && Number(args.quantity) !== order.quantity) {
+        const newQty = Math.max(1, Number(args.quantity));
+        const diff = newQty - order.quantity;
+
+        if (diff > 0 && order.product_id) {
+          const { data: prod } = await ctx.db
+            .from('products')
+            .select('stock_quantity')
+            .eq('id', order.product_id)
+            .maybeSingle();
+          if (prod && prod.stock_quantity < diff) {
+            return {
+              success: false,
+              error: `Not enough stock. Available additional: ${prod.stock_quantity}`,
+              replyText: `দুঃখিত, আমাদের স্টকে এই মুহূর্তে পর্যাপ্ত পরিমাণ প্রোডাক্ট নেই।`,
+            };
+          }
+        }
+
+        if (order.product_id) {
+          const { data: prod } = await ctx.db
+            .from('products')
+            .select('stock_quantity')
+            .eq('id', order.product_id)
+            .maybeSingle();
+          if (prod) {
+            await ctx.db
+              .from('products')
+              .update({ stock_quantity: Math.max(0, prod.stock_quantity - diff) })
+              .eq('id', order.product_id);
+          }
+        }
+
+        updates.quantity = newQty;
+        const newSubtotal = Number(order.unit_price) * newQty;
+        updates.total_amount = newSubtotal + Number(order.delivery_charge || 0);
+      }
+
+      const { data: updatedOrder, error: updateErr } = await ctx.db
+        .from('orders')
+        .update(updates)
+        .eq('id', order.id)
+        .select()
+        .single();
+
+      if (updateErr) {
+        return { success: false, error: updateErr.message };
+      }
+
+      // Sync memory
+      const memoryUpdates: Record<string, any> = {};
+      if (updates.customer_name) memoryUpdates.customer_name = updates.customer_name;
+      if (updates.customer_phone) memoryUpdates.customer_phone = updates.customer_phone;
+      if (updates.customer_address) memoryUpdates.full_address = updates.customer_address;
+      if (updates.district) memoryUpdates.district = updates.district;
+      if (updates.thana) memoryUpdates.thana = updates.thana;
+      if (updates.variant) memoryUpdates.selected_variant = updates.variant;
+      if (updates.quantity) memoryUpdates.quantity = updates.quantity;
+
+      if (Object.keys(memoryUpdates).length > 0) {
+        await ctx.db
+          .from('conversations')
+          .update({
+            ai_memory: { ...ctx.memory, ...memoryUpdates },
+          })
+          .eq('id', ctx.conversationId);
+      }
+
+      const replyText =
+        `আপনার অর্ডার (#${updatedOrder.invoice_no || updatedOrder.id.slice(0, 8)})-এর তথ্য সফলভাবে পরিবর্তন করা হয়েছে। 👍\n\n` +
+        `📦 পণ্য: ${updatedOrder.product_name} (${updatedOrder.variant || 'স্ট্যান্ডার্ড'})\n` +
+        `🔢 পরিমাণ: ${updatedOrder.quantity} টি\n` +
+        `📍 ডেলিভারি ঠিকানা: ${updatedOrder.customer_address}, ${updatedOrder.district}\n` +
+        `💰 মোট বিল: ৳${updatedOrder.total_amount}`;
+
+      return {
+        success: true,
+        order: updatedOrder,
+        replyText,
+      };
+    },
+  },
+
+  // 8e. cancel_order
+  cancel_order: {
+    name: 'cancel_order',
+    description: 'Cancel an existing order upon customer request before shipping, restoring product inventory stock and disabling follow-ups.',
+    parameters: {
+      type: 'object',
+      properties: {
+        orderId: { type: 'string', description: 'Order ID or Invoice Number. If omitted, uses current customer active order.' },
+        reason: { type: 'string', description: 'Reason for cancellation given by customer' },
+      },
+    },
+    handler: async (args, ctx) => {
+      let query = ctx.db.from('orders').select('*').eq('account_id', ctx.accountId);
+      const searchKey = args.orderId ? String(args.orderId).trim() : null;
+      if (searchKey) {
+        query = query.or(`id.eq.${searchKey},invoice_no.ilike.%${searchKey}%`);
+      } else if (ctx.memory.order_id) {
+        query = query.eq('id', ctx.memory.order_id);
+      } else if (ctx.memory.customer_phone) {
+        query = query.eq('customer_phone', ctx.memory.customer_phone);
+      } else {
+        query = query.eq('conversation_id', ctx.conversationId);
+      }
+
+      const { data: orders, error } = await query.order('created_at', { ascending: false }).limit(1);
+      if (error || !orders || orders.length === 0) {
+        return {
+          success: false,
+          error: 'No order found to cancel.',
+          replyText: 'আপনার কোনো সক্রিয় অর্ডার খুঁজে পাওয়া যায়নি। আপনার ইনভয়েস নম্বর বা ফোন নম্বরটি জানালে চেক করে দিচ্ছি।',
+        };
+      }
+
+      const order = orders[0];
+
+      if (order.status === 'CANCELLED') {
+        return {
+          success: true,
+          alreadyCancelled: true,
+          replyText: `আপনার অর্ডার #${order.invoice_no || order.id.slice(0, 8)} ইতিমধ্যে বাতিল করা রয়েছে। 😊`,
+        };
+      }
+
+      if (['SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERED'].includes(order.status)) {
+        return {
+          success: false,
+          cannotCancel: true,
+          replyText: `দুঃখিত, আপনার অর্ডারটি (#${order.invoice_no || order.id.slice(0, 8)}) ইতিমধ্যে কুরিয়ারে পাঠানো হয়েছে। পার্সেল ডেলিভারি রাইডারের কাছে থাকলে সরাসরি বাতিল করতে আমাদের সাপোর্ট টিমের সাথে কথা বলুন।`,
+        };
+      }
+
+      const cancelReason = args.reason ? String(args.reason) : 'Customer requested via chat';
+      const { error: updateErr } = await ctx.db
+        .from('orders')
+        .update({
+          status: 'CANCELLED',
+          notes: order.notes ? `${order.notes} | Cancelled: ${cancelReason}` : `Cancelled: ${cancelReason}`,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', order.id);
+
+      if (updateErr) {
+        return { success: false, error: updateErr.message };
+      }
+
+      // Restore product stock
+      if (order.product_id && order.quantity) {
+        try {
+          const { data: prod } = await ctx.db
+            .from('products')
+            .select('stock_quantity')
+            .eq('id', order.product_id)
+            .maybeSingle();
+          if (prod) {
+            await ctx.db
+              .from('products')
+              .update({ stock_quantity: prod.stock_quantity + order.quantity })
+              .eq('id', order.product_id);
+          }
+        } catch (stockErr) {
+          console.warn('[cancel_order] Failed to restore stock:', stockErr);
+        }
+      }
+
+      // Cancel follow-ups
+      await ctx.db
+        .from('conversations')
+        .update({
+          ai_state: 'COMPLETED',
+          ai_followup_count: 99,
+          ai_memory: {
+            ...ctx.memory,
+            last_customer_intent: 'CANCELLED',
+            followups_disabled: true,
+          },
+        })
+        .eq('id', ctx.conversationId);
+
+      const replyText = `আপনার অর্ডারটি (#${order.invoice_no || order.id.slice(0, 8)}) সফলভাবে বাতিল করা হয়েছে। পরবর্তীতে যেকোনো সময় আপনার প্রয়োজন হলে আমাদের জানাবেন। ধন্যবাদ! 🥰`;
+
+      return {
+        success: true,
+        orderId: order.id,
+        invoiceNo: order.invoice_no,
+        status: 'CANCELLED',
+        replyText,
+      };
+    },
+  },
+
   // 8c. send_quick_reply_buttons
   send_quick_reply_buttons: {
     name: 'send_quick_reply_buttons',
