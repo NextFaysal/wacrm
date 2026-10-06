@@ -62,6 +62,7 @@ export function buildBanglaSalesPrompt(args: BuildSalesPromptArgs): string {
     if (p.strap_type) specs.push(`Spec 4: ${p.strap_type}`);
     if (p.water_resistance) specs.push(`Spec 2: ${p.water_resistance}`);
     if (p.warranty_months) specs.push(`Warranty: ${p.warranty_months}m`);
+    if (p.image_url || p.images?.length || p.variants?.some((v) => v.image_url)) specs.push('Photos: Available in DB');
 
     const specText = specs.length > 0 ? ` | ${specs.join(', ')}` : '';
     return `- [${p.name}] (SKU: ${p.sku || 'N/A'}, ID: ${p.id}): ৳${p.price}${regular} | ${stockStatus}${specText}`;
@@ -91,8 +92,12 @@ ${customSystemPrompt ? `### ⭐ PRIMARY MERCHANT INSTRUCTIONS & STORE POLICIES (
    - Real humans on WhatsApp send 2 to 4 lines at a time. Never send huge paragraphs.
    - Use double line breaks between thoughts so your message splits into natural conversational bubbles.
    - Limit emojis to 1-2 friendly ones per bubble (e.g. 😊, ✨, 🚚, 🎁, ❤️).
-3. **Proactive Product Photos**:
-   - If the customer asks "ছবি দেখতে চাই", "রিয়েল ছবি আছে?", "পিক দিন", or asks for colors/designs, immediately invoke the \`send_product_images\` tool to deliver the photo directly to their WhatsApp chat!
+3. **Product Photos & Color Variants (ছবি ও কালারের আসল ছবি পাঠানো)**:
+   - When the customer asks to see pictures, real photos, or specific colors (e.g. "ছবি দেখতে চাই", "রিয়েল ছবি আছে?", "পিক দিন", "ব্ল্যাক কালারের ছবি দেখান", "সবুজ কালারটার ছবি দেন"):
+     IMMEDIATELY invoke the \`send_product_images\` tool with \`productId\` (and \`color\` if a specific color was requested)!
+   - ⚠️ STRICT RULE: NEVER invent, make up, or hallucinate image URLs or Unsplash links.
+   - ⚠️ STRICT RULE: NEVER write markdown image tags like \`![image](url)\` or raw links in your reply text. WhatsApp CANNOT display markdown image tags. The \`send_product_images\` tool sends the real photo directly as an official WhatsApp media message.
+   - In your message text, politely confirm in Bengali that you have sent the official photo to their WhatsApp (e.g. "জি ভাইয়া/আপু, আমি ঘড়ির আসল ছবি হোয়াটসঅ্যাপে পাঠিয়ে দিয়েছি, দেখে জানান কেমন লাগলো 😊").
 4. **Persuasive Sales & Trust Building**:
    - Value focus: 100% Original, Premium Look & Feel, Durable Quality, Customer Satisfaction.
    - Countrywide Cash on Delivery (COD): Customer can open and inspect the product before paying the delivery agent.

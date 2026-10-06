@@ -542,7 +542,10 @@ export async function executeAiCommerceAgent(args: ExecuteAgentArgs): Promise<Ag
       });
 
       if (llmResult.text && llmResult.text.trim()) {
-        await reply(llmResult.text.trim());
+        const cleanedReply = sanitizeLlmReply(llmResult.text.trim());
+        if (cleanedReply) {
+          await reply(cleanedReply);
+        }
 
         if (llmResult.usage) {
           void logAiUsage(db, {
@@ -558,7 +561,7 @@ export async function executeAiCommerceAgent(args: ExecuteAgentArgs): Promise<Ag
         const wasHandedOff = llmResult.toolsExecuted.includes('handoff_to_human');
         return {
           handled: true,
-          replyText: llmResult.text,
+          replyText: cleanedReply || llmResult.text,
           nextState: memory.order_id ? 'ORDER_CREATED' : currentState,
           handedOff: wasHandedOff,
         };
@@ -784,3 +787,14 @@ export async function executeAiCommerceAgent(args: ExecuteAgentArgs): Promise<Ag
   // Default fallback if unhandled
   return { handled: false };
 }
+
+function sanitizeLlmReply(text: string): string {
+  // Strip markdown image tags ![alt](url)
+  let cleaned = text.replace(/!\[[^\]]*\]\([^)]*\)/g, '');
+  // Strip bare markdown links pointing to images [alt](http...jpg)
+  cleaned = cleaned.replace(/\[[^\]]*\]\((https?:\/\/[^\s)]+\.(?:jpg|jpeg|png|webp|gif)[^)]*)\)/gi, '');
+  // Clean up any triple or more blank lines
+  cleaned = cleaned.replace(/\n{3,}/g, '\n\n').trim();
+  return cleaned;
+}
+

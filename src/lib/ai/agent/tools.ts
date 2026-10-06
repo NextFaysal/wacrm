@@ -1000,59 +1000,190 @@ export const AI_COMMERCE_TOOLS: Record<string, ToolDefinition> = {
   // 13. send_product_images
   send_product_images: {
     name: 'send_product_images',
-    description: 'Send official product photos for each available color variant on WhatsApp.',
+    description: 'Send verified official product photos and color variant pictures directly to the customer on WhatsApp. Call this whenever the customer asks to see product photos, pictures, colors, or designs.',
     parameters: {
       type: 'object',
       properties: {
-        productId: { type: 'string', description: 'Product ID' },
-        images: {
-          type: 'array',
-          items: {
-            type: 'object',
-            properties: {
-              color: { type: 'string' },
-              imageUrl: { type: 'string' },
-            },
-          },
-          description: 'Array of variant color names and image URLs',
+        productId: {
+          type: 'string',
+          description: 'The product ID or product name (e.g. Casio Edifice, T800 Ultra, or UUID)',
+        },
+        color: {
+          type: 'string',
+          description: 'Optional: specific color/variant name requested by customer (e.g. "Emerald Green", "Black", "Silver Blue Dial")',
         },
       },
       required: ['productId'],
     },
     handler: async (args, ctx) => {
-      let images = (args.images as Array<{ color: string; imageUrl: string }>) || [];
-      if (images.length === 0) {
-        const { data: p } = await ctx.db
-          .from('products')
-          .select('image_url, colors')
-          .eq('id', args.productId)
-          .maybeSingle();
+      const rawProductId = typeof args.productId === 'string' ? args.productId.trim() : '';
+      const targetColor = typeof args.color === 'string' ? args.color.trim() : '';
 
-        if (p?.image_url) {
-          images = [{ color: p.colors?.[0] || 'Standard', imageUrl: p.image_url }];
-        }
+      // 1. Resolve product from DB (supports UUID, partial name, or conversation memory)
+      let p: any = null;
+      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rawProductId);
+
+      if (isUuid) {
+        const { data } = await ctx.db
+          .from('products')
+          .select('id, name, image_url, images, variants, colors')
+          .eq('id', rawProductId)
+          .eq('account_id', ctx.accountId)
+          .maybeSingle();
+        p = data;
       }
 
-      let sentCount = 0;
-      for (const item of images) {
-        if (item.imageUrl) {
-          try {
-            await engineSendMedia({
-              accountId: ctx.accountId,
-              userId: ctx.configOwnerUserId,
-              conversationId: ctx.conversationId,
-              contactId: ctx.contactId,
-              kind: 'image',
-              link: item.imageUrl,
-              caption: item.color ? `🎨 কালার: ${item.color}` : undefined,
+      if (!p && rawProductId) {
+        const { data } = await ctx.db
+          .from('products')
+          .select('id, name, image_url, images, variants, colors')
+          .eq('account_id', ctx.accountId)
+          .eq('is_active', true)
+          .ilike('name', `%${rawProductId}%`)
+          .limit(1)
+          .maybeSingle();
+        p = data;
+      }
+
+      if (!p && ctx.memory?.interested_product_id) {
+        const { data } = await ctx.db
+          .from('products')
+          .select('id, name, image_url, images, variants, colors')
+          .eq('id', ctx.memory.interested_product_id)
+          .eq('account_id', ctx.accountId)
+          .maybeSingle();
+        p = data;
+      }
+
+      if (!p && ctx.memory?.interested_product_name) {
+        const { data } = await ctx.db
+          .from('products')
+          .select('id, name, image_url, images, variants, colors')
+          .eq('account_id', ctx.accountId)
+          .eq('is_active', true)
+          .ilike('name', `%${ctx.memory.interested_product_name}%`)
+          .limit(1)
+          .maybeSingle();
+        p = data;
+      }
+
+      if (!p) {
+        return { success: false, error: 'Product not found in store catalog' };
+      }
+
+      // Update memory with current interested product
+      if (ctx.memory && (!ctx.memory.interested_product_id || ctx.memory.interested_product_id !== p.id)) {
+        ctx.memory.interested_product_id = p.id;
+        ctx.memory.interested_product_name = p.name;
+      }
+
+      // 2. Assemble verified photos from product catalog
+      const imagesToSend: Array<{ url: string; caption?: string }> = [];
+      const seenUrls = new Set<string>();
+
+      if (targetColor) {
+        const lowerColor = targetColor.toLowerCase();
+        const variants = (p.variants || []) as Array<{ name?: string; image_url?: string }>;
+        const matchedVariant = variants.find(
+          (v) => v.name?.toLowerCase().includes(lowerColor) || lowerColor.includes(v.name?.toLowerCase() || '')
+        );
+
+        if (matchedVariant?.image_url && !seenUrls.has(matchedVariant.image_url)) {
+          imagesToSend.push({
+            url: matchedVariant.image_url,
+            caption: `🎨 ${p.name} (${matchedVariant.name})`,
+          });
+          seenUrls.add(matchedVariant.image_url);
+        } else if (p.image_url && !seenUrls.has(p.image_url)) {
+          imagesToSend.push({
+            url: p.image_url,
+            caption: `📸 ${p.name}\n🎨 কালার: ${targetColor}`,
+          });
+          seenUrls.add(p.image_url);
+        }
+      } else {
+        // General product photos
+        const variants = (p.variants || []) as Array<{ name?: string; image_url?: string }>;
+        for (const v of variants) {
+          if (v.image_url && !seenUrls.has(v.image_url)) {
+            imagesToSend.push({
+              url: v.image_url,
+              caption: `🎨 কালার: ${v.name}`,
             });
-            sentCount++;
-          } catch (e) {
-            console.error('[send_product_images] send error:', e);
+            seenUrls.add(v.image_url);
+            if (imagesToSend.length >= 3) break;
+          }
+        }
+
+        if (imagesToSend.length === 0 && p.image_url && !seenUrls.has(p.image_url)) {
+          const colorCaption = p.colors?.length ? `\n🎨 এভেইলেবল কালার: ${p.colors.join(', ')}` : '';
+          imagesToSend.push({
+            url: p.image_url,
+            caption: `📸 ${p.name}${colorCaption}`,
+          });
+          seenUrls.add(p.image_url);
+        }
+
+        if (Array.isArray(p.images)) {
+          for (const imgUrl of p.images) {
+            if (typeof imgUrl === 'string' && imgUrl.startsWith('http') && !seenUrls.has(imgUrl)) {
+              imagesToSend.push({
+                url: imgUrl,
+                caption: `📸 ${p.name}`,
+              });
+              seenUrls.add(imgUrl);
+              if (imagesToSend.length >= 3) break;
+            }
           }
         }
       }
-      return { success: true, sentCount };
+
+      // Handle internal calls that passed args.images
+      if (imagesToSend.length === 0 && Array.isArray(args.images)) {
+        for (const item of args.images as Array<{ color?: string; imageUrl?: string }>) {
+          if (item?.imageUrl && typeof item.imageUrl === 'string' && item.imageUrl.startsWith('http') && !seenUrls.has(item.imageUrl)) {
+            imagesToSend.push({
+              url: item.imageUrl,
+              caption: item.color ? `🎨 কালার: ${item.color}` : `📸 ${p.name}`,
+            });
+            seenUrls.add(item.imageUrl);
+            if (imagesToSend.length >= 3) break;
+          }
+        }
+      }
+
+      if (imagesToSend.length === 0) {
+        return {
+          success: false,
+          error: 'No image found for this product in catalog',
+          productName: p.name,
+        };
+      }
+
+      let sentCount = 0;
+      for (const item of imagesToSend) {
+        try {
+          await engineSendMedia({
+            accountId: ctx.accountId,
+            userId: ctx.configOwnerUserId,
+            conversationId: ctx.conversationId,
+            contactId: ctx.contactId,
+            kind: 'image',
+            link: item.url,
+            caption: item.caption,
+          });
+          sentCount++;
+        } catch (e) {
+          console.error('[send_product_images] send error:', e);
+        }
+      }
+
+      return {
+        success: sentCount > 0,
+        sentCount,
+        productName: p.name,
+        message: `${sentCount}টি অফিশিয়াল ছবি হোয়াটসঅ্যাপে পাঠানো হয়েছে।`,
+      };
     },
   },
 

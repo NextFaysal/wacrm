@@ -211,6 +211,19 @@ vi.mock('@supabase/supabase-js', () => ({
               }
             },
           }
+        case 'ai_configs':
+        case 'business_settings':
+        case 'auto_assign_rules':
+        case 'account_members':
+          return {
+            select: () => ({
+              eq: () => ({
+                maybeSingle: () => Promise.resolve({ data: null, error: null }),
+                order: () => Promise.resolve({ data: [], error: null }),
+              }),
+              order: () => Promise.resolve({ data: [], error: null }),
+            }),
+          }
         default:
           throw new Error(`unexpected table: ${table}`)
       }

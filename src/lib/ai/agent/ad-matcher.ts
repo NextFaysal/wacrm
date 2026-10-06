@@ -93,10 +93,15 @@ export async function matchProductFromInbound(
   // Build color images list (fallback to main product image if variant image absent)
   const colorImages: Array<{ color: string; imageUrl: string }> = [];
   const colors = matchedProduct.colors?.length ? matchedProduct.colors : [];
-  for (const c of colors) {
-    if (matchedProduct.image_url) {
-      colorImages.push({ color: c, imageUrl: matchedProduct.image_url });
+  const variantsWithImg = ((matchedProduct.variants as any[]) || []).filter((v: any) => v?.image_url);
+
+  if (variantsWithImg.length > 0) {
+    for (const v of variantsWithImg.slice(0, 3)) {
+      colorImages.push({ color: v.name || 'Variant', imageUrl: v.image_url });
     }
+  } else if (matchedProduct.image_url) {
+    const colorsLabel = colors.length ? colors.join(', ') : 'Standard';
+    colorImages.push({ color: colorsLabel, imageUrl: matchedProduct.image_url });
   }
 
   // Generate short, high-converting WhatsApp offer pitch

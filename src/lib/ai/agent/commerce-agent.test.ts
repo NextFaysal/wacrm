@@ -2,6 +2,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { AI_COMMERCE_TOOLS, type ToolContext } from './tools';
 import { buildBanglaSalesPrompt } from './sales-prompt';
 
+vi.mock('@/lib/flows/meta-send', () => ({
+  engineSendText: vi.fn().mockResolvedValue({ whatsapp_message_id: 'wamid.text' }),
+  engineSendMedia: vi.fn().mockResolvedValue({ whatsapp_message_id: 'wamid.media' }),
+  loadAccountMetaCredentials: vi.fn().mockResolvedValue({ phoneNumberId: 'pid', accessToken: 'token' }),
+}));
+
 describe('AI Commerce Agent Tools', () => {
   let mockContext: ToolContext;
 
@@ -321,6 +327,92 @@ describe('AI Commerce Agent Tools', () => {
       expect(extracted.trxId).toBe('9K37XZL2');
       expect(extracted.paymentMethod).toBe('bKash');
       expect(extracted.paymentAmount).toBe(200);
+    });
+  });
+
+  describe('send_product_images', () => {
+    it('sends verified main image from product database record', async () => {
+      const { engineSendMedia } = await import('@/lib/flows/meta-send');
+      const mockProduct = {
+        id: '99999999-9999-4999-9999-999999999999',
+        name: 'Casio Edifice EFR-539',
+        image_url: 'https://images.example.com/casio.jpg',
+        colors: ['Silver Black Dial', 'Silver Blue Dial'],
+        variants: [],
+      };
+
+      (mockContext.db.from as any).mockImplementation((table: string) => {
+        if (table === 'products') {
+          return {
+            select: () => ({
+              eq: () => ({
+                eq: () => ({
+                  maybeSingle: async () => ({ data: mockProduct }),
+                }),
+              }),
+            }),
+          };
+        }
+        return {};
+      });
+
+      const res = (await AI_COMMERCE_TOOLS.send_product_images.handler(
+        { productId: '99999999-9999-4999-9999-999999999999' },
+        mockContext
+      )) as any;
+
+      expect(res.success).toBe(true);
+      expect(res.sentCount).toBe(1);
+      expect(engineSendMedia).toHaveBeenCalledWith(
+        expect.objectContaining({
+          kind: 'image',
+          link: 'https://images.example.com/casio.jpg',
+          caption: expect.stringContaining('Casio Edifice EFR-539'),
+        })
+      );
+    });
+
+    it('sends variant-specific photo when customer requests a specific color', async () => {
+      const { engineSendMedia } = await import('@/lib/flows/meta-send');
+      const mockProduct = {
+        id: '88888888-8888-4888-8888-888888888888',
+        name: 'POEDAGAR 613',
+        image_url: 'https://images.example.com/poedagar-main.jpg',
+        colors: ['Emerald Green', 'Sapphire Blue'],
+        variants: [
+          { name: 'Emerald Green', image_url: 'https://images.example.com/green.jpg' },
+          { name: 'Sapphire Blue', image_url: 'https://images.example.com/blue.jpg' },
+        ],
+      };
+
+      (mockContext.db.from as any).mockImplementation((table: string) => {
+        if (table === 'products') {
+          return {
+            select: () => ({
+              eq: () => ({
+                eq: () => ({
+                  maybeSingle: async () => ({ data: mockProduct }),
+                }),
+              }),
+            }),
+          };
+        }
+        return {};
+      });
+
+      const res = (await AI_COMMERCE_TOOLS.send_product_images.handler(
+        { productId: '88888888-8888-4888-8888-888888888888', color: 'Emerald Green' },
+        mockContext
+      )) as any;
+
+      expect(res.success).toBe(true);
+      expect(res.sentCount).toBe(1);
+      expect(engineSendMedia).toHaveBeenCalledWith(
+        expect.objectContaining({
+          link: 'https://images.example.com/green.jpg',
+          caption: expect.stringContaining('Emerald Green'),
+        })
+      );
     });
   });
 
