@@ -6,7 +6,9 @@ import { AI_COMMERCE_TOOLS, type ToolContext } from './tools';
 import { extractCustomerEntities, computeMissingOrderFields } from './extractor';
 import { matchProductFromInbound } from './ad-matcher';
 import { calculateCustomerRisk } from './risk-engine';
-import { engineSendText, loadAccountMetaCredentials } from '@/lib/flows/meta-send';
+import { engineSendText, engineSendMedia, loadAccountMetaCredentials } from '@/lib/flows/meta-send';
+import { uploadMediaToMeta } from '@/lib/whatsapp/meta-api';
+import { synthesizeSpeech } from '@/lib/ai/voice-engine';
 import { sendHumanLikeMessages } from '@/lib/ai/human-simulation';
 import { logAiUsage } from '@/lib/ai/usage';
 import { buildBanglaSalesPrompt } from './sales-prompt';
@@ -144,6 +146,39 @@ export async function executeAiCommerceAgent(args: ExecuteAgentArgs): Promise<Ag
       accessToken: token,
       inboundMessageId: args.inboundMessageId,
     });
+
+    // If incoming message was a voice note and voice replies are enabled, synthesize and send voice note
+    if (actionSettings.voice_notes && inboundText.includes('🎙️') && phoneId && token) {
+      try {
+        const audioSpeech = await synthesizeSpeech({
+          text,
+          provider: config.provider,
+          apiKey: config.apiKey,
+          language: 'bn',
+        });
+        if (audioSpeech) {
+          const mediaId = await uploadMediaToMeta({
+            phoneNumberId: phoneId,
+            accessToken: token,
+            file: audioSpeech.buffer,
+            mimeType: audioSpeech.mimeType,
+            filename: 'voice_reply.mp3',
+          });
+          if (mediaId) {
+            await engineSendMedia({
+              accountId,
+              userId: configOwnerUserId,
+              conversationId,
+              contactId,
+              kind: 'audio',
+              mediaId,
+            });
+          }
+        }
+      } catch (voiceErr) {
+        console.warn('[executor] Voice response synthesis skipped:', voiceErr);
+      }
+    }
   };
 
   // Strip voice note envelope prefix if present so entity extraction and matching work cleanly

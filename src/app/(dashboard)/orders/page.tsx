@@ -63,6 +63,7 @@ import { CustomerJourneyModal } from '@/components/growth/customer-journey-modal
 
 const STATUS_FILTERS = [
   { id: 'all', label: 'All', color: '' },
+  { id: 'ai_only', label: '✨ AI Orders', color: 'text-purple-600' },
   { id: 'NEW', label: 'New', color: 'text-slate-600' },
   { id: 'CONFIRMED', label: 'Confirmed', color: 'text-blue-600' },
   { id: 'COURIER_BOOKED', label: 'In Courier', color: 'text-amber-600' },
@@ -406,7 +407,12 @@ export default function OrdersPage() {
         (o.invoice_no && o.invoice_no.toLowerCase().includes(search.toLowerCase())) ||
         (o.courier_tracking_code && o.courier_tracking_code.toLowerCase().includes(search.toLowerCase()));
 
-      const matchesStatus = statusFilter === 'all' || o.status === statusFilter;
+      const matchesStatus =
+        statusFilter === 'all'
+          ? true
+          : statusFilter === 'ai_only'
+          ? Boolean(o.conversation_id)
+          : o.status === statusFilter;
       const matchesRisk = riskFilter === 'all' || o.risk_level === riskFilter;
 
       let matchesDate = true;
@@ -655,7 +661,12 @@ export default function OrdersPage() {
         {/* Status Tabs */}
         <div className="flex gap-1 overflow-x-auto scrollbar-none pb-0.5">
           {STATUS_FILTERS.map((f) => {
-            const count = f.id === 'all' ? orders.length : orders.filter(o => o.status === f.id).length;
+            const count =
+              f.id === 'all'
+                ? orders.length
+                : f.id === 'ai_only'
+                ? orders.filter((o) => Boolean(o.conversation_id)).length
+                : orders.filter((o) => o.status === f.id).length;
             return (
               <button
                 key={f.id}
@@ -848,6 +859,25 @@ export default function OrdersPage() {
 
                         <StatusBadge status={order.status} />
                         <RiskBadge level={order.risk_level ?? undefined} />
+
+                        {order.conversation_id && (
+                          <Link
+                            href={`/inbox?conversationId=${order.conversation_id}`}
+                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-purple-50 text-purple-700 border border-purple-200 dark:bg-purple-900/20 dark:text-purple-400 dark:border-purple-800 hover:bg-purple-100 transition-colors"
+                            title="Created via WhatsApp AI - click to open chat"
+                          >
+                            <Sparkles className="h-2.5 w-2.5 text-purple-600" /> AI Order
+                          </Link>
+                        )}
+
+                        {order.status === 'CANCELLED' && order.notes?.includes('Cancelled:') && (
+                          <span
+                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-red-50 text-red-700 border border-red-200 dark:bg-red-900/20 dark:text-red-400 dark:border-red-800"
+                            title={order.notes}
+                          >
+                            <XCircle className="h-2.5 w-2.5" /> Cancelled via AI
+                          </span>
+                        )}
 
                         {isDuplicate && (
                           <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-900/20 dark:text-amber-400 dark:border-amber-800">

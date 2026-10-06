@@ -179,7 +179,8 @@ interface SendMediaEngineArgs {
   contactId: string
   kind: MediaKind
   /** Public URL Meta fetches at send time. */
-  link: string
+  link?: string
+  mediaId?: string
   caption?: string
   /** Document-only; ignored by Meta for image/video. */
   filename?: string
@@ -231,6 +232,7 @@ export async function engineSendMedia(
       to: phone,
       kind: args.kind,
       link: args.link,
+      mediaId: args.mediaId,
       caption: args.caption,
       filename: args.filename,
     })
