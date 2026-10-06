@@ -9,8 +9,8 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { slugify } from "@/components/flows/shared";
-import { INTERACTIVE_LIMITS } from "@/lib/whatsapp/meta-api";
 import {
+  INTERACTIVE_LIMITS,
   validateInteractivePayload,
   type InteractiveButtonsPayload,
   type InteractiveListPayload,

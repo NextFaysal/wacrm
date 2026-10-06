@@ -21,7 +21,17 @@
 // mid-conversation.
 // ============================================================
 
-import { INTERACTIVE_LIMITS } from './meta-api'
+export const INTERACTIVE_LIMITS = {
+  maxButtons: 3,
+  buttonTitleMaxLength: 20,
+  maxListSections: 10,
+  maxListRowsTotal: 10,
+  listRowTitleMaxLength: 24,
+  listRowDescriptionMaxLength: 72,
+  bodyMaxLength: 1024,
+  headerTextMaxLength: 60,
+  footerMaxLength: 60,
+} as const
 
 export interface InteractiveButton {
   /** Stable id echoed back in the webhook when tapped. */
