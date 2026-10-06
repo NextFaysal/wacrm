@@ -73,7 +73,7 @@ export async function POST(request: Request) {
       )
     }
 
-    const [knowledge, bizCtx] = await Promise.all([
+    const [knowledge, bizCtx, productsRes] = await Promise.all([
       retrieveKnowledge(
         supabase,
         accountId,
@@ -81,7 +81,19 @@ export async function POST(request: Request) {
         latestUserMessage(messages),
       ),
       loadBusinessContext(accountId, supabase),
+      supabase
+        .from('products')
+        .select('id, name, price, regular_price, image_url, images, variants, colors, description')
+        .eq('account_id', accountId)
+        .eq('is_active', true)
+        .order('created_at', { ascending: false })
+        .limit(10),
     ])
+
+    const activeProducts = productsRes.data || []
+    const catalogText = activeProducts.length > 0
+      ? activeProducts.map((p, i) => `${i + 1}. ${p.name} - ৳${p.price}${p.colors?.length ? ` (কালার: ${Array.isArray(p.colors) ? p.colors.join(', ') : p.colors})` : ''}`).join('\n')
+      : 'বর্তমানে কোনো প্রোডাক্ট এভেইলেবল নেই।'
 
     const businessPrompt = config.systemPrompt?.trim()
       ? config.systemPrompt
@@ -92,7 +104,11 @@ Store Policies:
 - Free Delivery: ${bizCtx.freeDeliveryGlobal ? 'Currently free delivery across all orders' : `${bizCtx.freeDeliveryMinQty} or more items get free delivery`}.
 - Warranty & Return: ${bizCtx.warrantyPolicy}.
 - Cash on Delivery available nationwide with open-box verification before payment.
-Always respond in warm, natural, polite Bengali (use "জি ভাইয়া/আপু", "অবশ্যই", "ধন্যবাদ"). Keep answers short and WhatsApp-friendly.`
+
+Available Store Catalog:
+${catalogText}
+
+Always respond in warm, natural, polite Bengali (use "জি ভাইয়া/আপু", "অবশ্যই", "ধন্যবাদ"). Keep answers short and WhatsApp-friendly. If customer asks for pictures, confirm that pictures have been sent.`
 
     const systemPrompt = buildSystemPrompt({
       userPrompt: businessPrompt,
@@ -101,7 +117,37 @@ Always respond in warm, natural, polite Bengali (use "জি ভাইয়া/আ
     })
 
     const { text, handoff } = await generateReply({ config, systemPrompt, messages })
-    return NextResponse.json({ reply: text, handoff })
+
+    // Simulate sending media images in playground if customer asks for pictures
+    const lastMsg = latestUserMessage(messages) || ''
+    const isImageReq = /(ছবি|ফটো|পিক|পিকচার|photo|image|pic|picture|chobi|বাস্তব ছবি|আসল ছবি|কালার|color)/i.test(lastMsg)
+    const images: Array<{ url: string; caption?: string }> = []
+
+    if (isImageReq && activeProducts.length > 0) {
+      const targetProd = activeProducts.find((p) => lastMsg.toLowerCase().includes(p.name.toLowerCase())) || activeProducts[0]
+      if (targetProd) {
+        if (targetProd.image_url && typeof targetProd.image_url === 'string' && targetProd.image_url.startsWith('http')) {
+          images.push({ url: targetProd.image_url, caption: `📸 ${targetProd.name}` })
+        }
+        const rawVariants = Array.isArray(targetProd.variants) ? targetProd.variants : []
+        for (const v of rawVariants as any[]) {
+          if (v?.image_url && typeof v.image_url === 'string' && v.image_url.startsWith('http') && !images.some((m) => m.url === v.image_url)) {
+            images.push({ url: v.image_url, caption: `🎨 ${targetProd.name} (${v.name || 'কালার'})` })
+            if (images.length >= 3) break
+          }
+        }
+        if (images.length < 3 && Array.isArray(targetProd.images)) {
+          for (const img of targetProd.images) {
+            if (typeof img === 'string' && img.startsWith('http') && !images.some((m) => m.url === img)) {
+              images.push({ url: img, caption: `📸 ${targetProd.name}` })
+              if (images.length >= 3) break
+            }
+          }
+        }
+      }
+    }
+
+    return NextResponse.json({ reply: text, handoff, images: images.length > 0 ? images : undefined })
   } catch (err) {
     if (err instanceof AiError) {
       return NextResponse.json(

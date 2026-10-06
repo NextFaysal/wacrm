@@ -12,6 +12,7 @@ interface Turn {
   content: string;
   /** assistant-only: the agent signalled a human handoff on this turn. */
   handoff?: boolean;
+  images?: Array<{ url: string; caption?: string }>;
 }
 
 export function AiPlayground({ onGoToSetup }: { onGoToSetup?: () => void }) {
@@ -63,6 +64,7 @@ export function AiPlayground({ onGoToSetup }: { onGoToSetup?: () => void }) {
               ? data.reply
               : '',
           handoff: Boolean(data.handoff),
+          images: Array.isArray(data.images) ? data.images : undefined,
         },
       ]);
     } catch {
@@ -165,6 +167,26 @@ export function AiPlayground({ onGoToSetup }: { onGoToSetup?: () => void }) {
               )}
             >
               {turn.content && <p className="whitespace-pre-wrap">{turn.content}</p>}
+              {turn.images && turn.images.length > 0 && (
+                <div className="mt-2.5 flex flex-wrap gap-2">
+                  {turn.images.map((img, imgIdx) => (
+                    <div key={imgIdx} className="overflow-hidden rounded-lg border border-border/80 bg-background/50 shadow-sm max-w-[200px]">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={img.url}
+                        alt={img.caption || 'Product Photo'}
+                        className="h-32 w-full object-cover"
+                        onError={(e) => {
+                          (e.target as HTMLElement).style.display = 'none';
+                        }}
+                      />
+                      {img.caption && (
+                        <p className="px-2 py-1 text-[11px] text-muted-foreground truncate">{img.caption}</p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
               {turn.role === 'assistant' && turn.handoff && (
                 <p
                   className={cn(

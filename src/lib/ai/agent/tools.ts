@@ -1070,6 +1070,19 @@ export const AI_COMMERCE_TOOLS: Record<string, ToolDefinition> = {
       }
 
       if (!p) {
+        // Fallback: pick the latest active product of the account so customer inquiry never fails
+        const { data: fallbackProduct } = await ctx.db
+          .from('products')
+          .select('id, name, image_url, images, variants, colors')
+          .eq('account_id', ctx.accountId)
+          .eq('is_active', true)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        p = fallbackProduct;
+      }
+
+      if (!p) {
         return { success: false, error: 'Product not found in store catalog' };
       }
 
@@ -1083,42 +1096,75 @@ export const AI_COMMERCE_TOOLS: Record<string, ToolDefinition> = {
       const imagesToSend: Array<{ url: string; caption?: string }> = [];
       const seenUrls = new Set<string>();
 
+      const rawVariants: Array<{ name?: string; image_url?: string }> = Array.isArray(p.variants)
+        ? p.variants
+        : typeof p.variants === 'string'
+          ? (() => { try { return JSON.parse(p.variants); } catch { return []; } })()
+          : [];
+
+      const rawImages: string[] = Array.isArray(p.images)
+        ? p.images
+        : typeof p.images === 'string'
+          ? (() => {
+              try {
+                const parsed = JSON.parse(p.images);
+                return Array.isArray(parsed) ? parsed : [p.images];
+              } catch {
+                return p.images.includes(',') ? p.images.split(',').map((s: string) => s.trim()) : [p.images];
+              }
+            })()
+          : [];
+
       if (targetColor) {
         const lowerColor = targetColor.toLowerCase();
-        const variants = (p.variants || []) as Array<{ name?: string; image_url?: string }>;
-        const matchedVariant = variants.find(
+        const matchedVariant = rawVariants.find(
           (v) => v.name?.toLowerCase().includes(lowerColor) || lowerColor.includes(v.name?.toLowerCase() || '')
         );
 
-        if (matchedVariant?.image_url && !seenUrls.has(matchedVariant.image_url)) {
+        if (matchedVariant?.image_url && typeof matchedVariant.image_url === 'string' && matchedVariant.image_url.startsWith('http') && !seenUrls.has(matchedVariant.image_url)) {
           imagesToSend.push({
             url: matchedVariant.image_url,
             caption: `🎨 ${p.name} (${matchedVariant.name})`,
           });
           seenUrls.add(matchedVariant.image_url);
-        } else if (p.image_url && !seenUrls.has(p.image_url)) {
-          imagesToSend.push({
-            url: p.image_url,
-            caption: `📸 ${p.name}\n🎨 কালার: ${targetColor}`,
-          });
-          seenUrls.add(p.image_url);
+        }
+
+        // Fallback to main product photos if variant photo is not explicitly uploaded
+        if (imagesToSend.length === 0) {
+          if (p.image_url && typeof p.image_url === 'string' && p.image_url.startsWith('http') && !seenUrls.has(p.image_url)) {
+            imagesToSend.push({
+              url: p.image_url,
+              caption: `📸 ${p.name}\n🎨 কালার: ${targetColor}`,
+            });
+            seenUrls.add(p.image_url);
+          }
+
+          for (const imgUrl of rawImages) {
+            if (typeof imgUrl === 'string' && imgUrl.startsWith('http') && !seenUrls.has(imgUrl)) {
+              imagesToSend.push({
+                url: imgUrl,
+                caption: `📸 ${p.name}\n🎨 কালার: ${targetColor}`,
+              });
+              seenUrls.add(imgUrl);
+              if (imagesToSend.length >= 2) break;
+            }
+          }
         }
       } else {
-        // General product photos
-        const variants = (p.variants || []) as Array<{ name?: string; image_url?: string }>;
-        for (const v of variants) {
-          if (v.image_url && !seenUrls.has(v.image_url)) {
+        // General product photos: variants first
+        for (const v of rawVariants) {
+          if (v.image_url && typeof v.image_url === 'string' && v.image_url.startsWith('http') && !seenUrls.has(v.image_url)) {
             imagesToSend.push({
               url: v.image_url,
-              caption: `🎨 কালার: ${v.name}`,
+              caption: `🎨 কালার: ${v.name || 'কালার'}`,
             });
             seenUrls.add(v.image_url);
             if (imagesToSend.length >= 3) break;
           }
         }
 
-        if (imagesToSend.length === 0 && p.image_url && !seenUrls.has(p.image_url)) {
-          const colorCaption = p.colors?.length ? `\n🎨 এভেইলেবল কালার: ${p.colors.join(', ')}` : '';
+        if (imagesToSend.length === 0 && p.image_url && typeof p.image_url === 'string' && p.image_url.startsWith('http') && !seenUrls.has(p.image_url)) {
+          const colorCaption = p.colors?.length ? `\n🎨 এভেইলেবল কালার: ${Array.isArray(p.colors) ? p.colors.join(', ') : p.colors}` : '';
           imagesToSend.push({
             url: p.image_url,
             caption: `📸 ${p.name}${colorCaption}`,
@@ -1126,8 +1172,8 @@ export const AI_COMMERCE_TOOLS: Record<string, ToolDefinition> = {
           seenUrls.add(p.image_url);
         }
 
-        if (Array.isArray(p.images)) {
-          for (const imgUrl of p.images) {
+        if (imagesToSend.length < 3) {
+          for (const imgUrl of rawImages) {
             if (typeof imgUrl === 'string' && imgUrl.startsWith('http') && !seenUrls.has(imgUrl)) {
               imagesToSend.push({
                 url: imgUrl,

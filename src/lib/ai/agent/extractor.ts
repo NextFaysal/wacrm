@@ -151,8 +151,10 @@ export function extractCustomerEntities(text: string, existingMemory: Conversati
     result.detectedIntent = 'FUTURE_PURCHASE';
   } else if (/(দাম কত|price koto|koto dam|rate koto|অফার কি)/i.test(trimmed)) {
     result.detectedIntent = 'PRICE_INQUIRY';
-  } else if (/(waterproof|পানি লাগলে|ব্যাটারি|গ্যারান্টি|ওয়ারেন্টি|warranty|material|উপাদান|সাইজ|size|color)/i.test(trimmed)) {
-    result.detectedIntent = 'PRODUCT_QUESTION';
+  } else if (
+    /(ছবি|ফটো|পিক|পিকচার|photo|image|pic|picture|chobi|বাস্তব ছবি|আসল ছবি|রিয়েল ছবি|কালার দেখতে চাই|কালারের ছবি|রং দেখতে চাই|কালারগুলো দেখান|কালার দেখান|color dekhaw|pic den|photo den|chobi den|chobi pathan|image pathan|pic pathan)/i.test(trimmed)
+  ) {
+    result.detectedIntent = 'IMAGE_REQUEST';
   } else if (/(কথা বলতে চাই|মানুষের সাথে কথা|agent|representative|ফোন ধরুন)/i.test(trimmed)) {
     result.detectedIntent = 'HUMAN_AGENT_REQUEST';
   }

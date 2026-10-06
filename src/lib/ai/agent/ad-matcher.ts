@@ -84,8 +84,8 @@ export async function matchProductFromInbound(
     }
   }
 
-  // 5. Default fallback for standard ad template ("আমি এই প্রোডাক্টটি সম্পর্কে জানতে চাই")
-  if (!matchedProduct && (referral || /জানতে চাই|অর্ডার|দাম কত|নিতে চাই|অফার|প্রোডাক্ট|পণ্য/i.test(combinedSearchSource))) {
+  // 5. Default fallback for standard ad template or inquiries
+  if (!matchedProduct && (referral || /জানতে চাই|অর্ডার|দাম কত|নিতে চাই|অফার|প্রোডাক্ট|পণ্য|ছবি|image|pic|photo|কালার|color|দেখান|পাঠান/i.test(combinedSearchSource))) {
     matchedProduct = products[0];
   }
 
@@ -93,18 +93,29 @@ export async function matchProductFromInbound(
     return { matched: false, colorImages: [] };
   }
 
-  // Build color images list (fallback to main product image if variant image absent)
+  // Build color images list (fallback to main product image or images array if variant image absent)
   const colorImages: Array<{ color: string; imageUrl: string }> = [];
   const colors = matchedProduct.colors?.length ? matchedProduct.colors : [];
-  const variantsWithImg = ((matchedProduct.variants as any[]) || []).filter((v: any) => v?.image_url);
+  const rawVariants = Array.isArray(matchedProduct.variants)
+    ? matchedProduct.variants
+    : typeof matchedProduct.variants === 'string'
+      ? (() => { try { return JSON.parse(matchedProduct.variants); } catch { return []; } })()
+      : [];
+  const variantsWithImg = (rawVariants as any[]).filter((v: any) => v?.image_url && typeof v.image_url === 'string' && v.image_url.startsWith('http'));
 
   if (variantsWithImg.length > 0) {
     for (const v of variantsWithImg.slice(0, 3)) {
       colorImages.push({ color: v.name || 'Variant', imageUrl: v.image_url });
     }
-  } else if (matchedProduct.image_url) {
+  } else if (matchedProduct.image_url && matchedProduct.image_url.startsWith('http')) {
     const colorsLabel = colors.length ? colors.join(', ') : 'Standard';
     colorImages.push({ color: colorsLabel, imageUrl: matchedProduct.image_url });
+  } else if (Array.isArray(matchedProduct.images) && matchedProduct.images.length > 0) {
+    for (const img of matchedProduct.images.slice(0, 3)) {
+      if (typeof img === 'string' && img.startsWith('http')) {
+        colorImages.push({ color: 'Standard', imageUrl: img });
+      }
+    }
   }
 
   // Resolve business context

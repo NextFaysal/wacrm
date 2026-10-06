@@ -281,6 +281,71 @@ export async function executeAiCommerceAgent(args: ExecuteAgentArgs): Promise<Ag
   }
 
   // ----------------------------------------------------
+  // Scenario B3.5: Customer asks for Product Photos / Colors / Real Pictures
+  // ----------------------------------------------------
+  const isImageRequest =
+    extracted.detectedIntent === 'IMAGE_REQUEST' ||
+    /(ছবি|ফটো|পিক|পিকচার|photo|image|pic|picture|chobi|বাস্তব ছবি|আসল ছবি|রিয়েল ছবি|কালার দেখতে চাই|কালারের ছবি|রং দেখতে চাই|কালারগুলো দেখান|কালার দেখান|color dekhaw|pic den|photo den|chobi den|chobi pathan|image pathan|pic pathan)/i.test(inboundText);
+
+  if (isImageRequest && actionSettings.send_product_images) {
+    let targetProductId = memory.interested_product_id;
+    let targetProductName = memory.interested_product_name;
+
+    if (!targetProductId) {
+      // Find matching product by text or fallback to active product
+      const match = await matchProductFromInbound(db, accountId, inboundText, referral, bizCtx);
+      if (match.matched && match.product) {
+        targetProductId = match.product.id;
+        targetProductName = match.product.name;
+      }
+    }
+
+    if (!targetProductId) {
+      const { data: firstProd } = await db
+        .from('products')
+        .select('id, name')
+        .eq('account_id', accountId)
+        .eq('is_active', true)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (firstProd) {
+        targetProductId = firstProd.id;
+        targetProductName = firstProd.name;
+      }
+    }
+
+    if (targetProductId) {
+      await transition('PRODUCT_INFORMATION_SENT', {
+        interested_product_id: targetProductId,
+        interested_product_name: targetProductName || undefined,
+      });
+
+      const imgRes = (await AI_COMMERCE_TOOLS.send_product_images.handler(
+        {
+          productId: targetProductId,
+          color: extracted.variant || undefined,
+        },
+        toolCtx
+      )) as any;
+
+      const colorMention = extracted.variant ? ` (${extracted.variant} কালার)` : '';
+      const prodName = targetProductName || bizCtx.productNoun;
+      let photoConfirmMsg = '';
+
+      if (imgRes?.success) {
+        photoConfirmMsg = `জি ভাইয়া/আপু! আমি ${prodName}${colorMention}-এর ছবি হোয়াটসঅ্যাপে পাঠিয়ে দিয়েছি 📸✨\n\nছবি দেখে জানান কেমন লাগলো, আর কোনো কিছু জানার থাকলে বা অর্ডার করতে চাইলে অবশ্যই বলবেন! 😊`;
+      } else {
+        photoConfirmMsg = `জি ভাইয়া/আপু, ${prodName}${colorMention}-এর ছবি দ্রুতই পাঠিয়ে দিচ্ছি। আপনার কি নির্দিষ্ট কোনো কালার বা ভ্যারিয়েন্ট পছন্দ আছে? 😊`;
+      }
+
+      await reply(photoConfirmMsg);
+      await logAudit('send_product_images_request', { text: inboundText, variant: extracted.variant }, imgRes);
+      return { handled: true, nextState: 'PRODUCT_INFORMATION_SENT' };
+    }
+  }
+
+  // ----------------------------------------------------
   // Ultra-Fast Store FAQ / Immediate Intent Match (< 5ms response, 0 OpenAI cost)
   // Intercepts repetitive FAQs (warranty, delivery fees, battery, open-box checking)
   // before running heavy LLMs or RAG loops.
