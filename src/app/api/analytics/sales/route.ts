@@ -210,9 +210,24 @@ export async function GET(request: Request) {
       packagingCostDefault: 20,
     });
 
+    let aiOrdersCount = 0;
+    let aiRevenue = 0;
+    for (const ord of orderList) {
+      if (ord.conversation_id) {
+        aiOrdersCount++;
+        if (ord.status !== 'CANCELLED' && ord.status !== 'RETURNED') {
+          aiRevenue += Number(ord.total_amount) || 0;
+        }
+      }
+    }
+    const aiSharePct = orderList.length > 0 ? Math.round((aiOrdersCount / orderList.length) * 100) : 0;
+
     return NextResponse.json({
       summary: {
         totalOrders: orderList.length,
+        aiOrdersCount,
+        aiRevenue,
+        aiSharePct,
         totalRevenue,
         deliveredRevenue,
         totalCost,

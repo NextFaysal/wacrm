@@ -22,6 +22,7 @@ import {
   ExternalLink,
   ChevronRight,
   ShieldCheck,
+  Sparkles,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -48,6 +49,9 @@ interface AnalyticsData {
     deliveredProfit: number;
     profitMarginPct: number;
     averageOrderValue: number;
+    aiOrdersCount?: number;
+    aiRevenue?: number;
+    aiSharePct?: number;
     deliveredCount: number;
     returnedCount: number;
     cancelledCount: number;
@@ -174,7 +178,7 @@ export default function AnalyticsPage() {
       </div>
 
       {/* Primary KPI Metric Cards */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         {/* Total Sales Revenue */}
         <Card className="border border-border/80 bg-card shadow-sm">
           <CardContent className="p-4 flex items-center justify-between">
@@ -189,6 +193,27 @@ export default function AnalyticsPage() {
             </div>
             <div className="h-11 w-11 rounded-xl bg-blue-500/10 text-blue-500 flex items-center justify-center">
               <DollarSign className="h-5 w-5" />
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* AI Sales Revenue */}
+        <Card className="border border-purple-200/80 bg-purple-50/20 dark:border-purple-900/50 dark:bg-purple-950/20 shadow-sm">
+          <CardContent className="p-4 flex items-center justify-between">
+            <div className="space-y-1">
+              <div className="flex items-center gap-1.5">
+                <p className="text-xs font-semibold text-purple-700 dark:text-purple-300">AI সেলস (AI Revenue)</p>
+                <Sparkles className="h-3 w-3 text-purple-600 animate-pulse" />
+              </div>
+              <h3 className="text-2xl font-black text-purple-700 dark:text-purple-300">
+                ৳{(summary?.aiRevenue || 0).toLocaleString('en-BD')}
+              </h3>
+              <p className="text-[11px] text-muted-foreground">
+                অর্ডার: <strong className="text-foreground">{summary?.aiOrdersCount || 0}</strong> ({summary?.aiSharePct || 0}%)
+              </p>
+            </div>
+            <div className="h-11 w-11 rounded-xl bg-purple-500/10 text-purple-600 flex items-center justify-center">
+              <Sparkles className="h-5 w-5" />
             </div>
           </CardContent>
         </Card>
