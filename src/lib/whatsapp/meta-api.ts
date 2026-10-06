@@ -10,6 +10,7 @@
  */
 
 import { isBusinessScopedUserId } from './wa-identity'
+import { cacheGet, cacheSet } from '@/lib/redis/cache'
 
 const META_API_VERSION = 'v21.0'
 const META_API_BASE = `https://graph.facebook.com/${META_API_VERSION}`
@@ -390,8 +391,9 @@ export interface SendMediaMessageArgs {
   accessToken: string
   to: string
   kind: MediaKind
-  /** Public URL Meta fetches at send time. */
-  link: string
+  /** Public URL Meta fetches at send time, or media ID if pre-uploaded. */
+  link?: string
+  mediaId?: string
   /** Optional caption — Meta caps at 1024 chars. Documents + images + videos accept it; audio does NOT. */
   caption?: string
   /** Document-only. Shown in the recipient's chat as the file name. Ignored for image/video/audio. */
@@ -399,29 +401,139 @@ export interface SendMediaMessageArgs {
   contextMessageId?: string
 }
 
+export interface UploadMediaArgs {
+  phoneNumberId: string
+  accessToken: string
+  file: Blob | Buffer
+  mimeType: string
+  filename?: string
+}
+
 /**
- * Send an image, video, document, or audio (voice note) via a public URL.
+ * Upload a media binary directly to Meta WhatsApp Cloud API (/media endpoint).
+ * Returns the Meta media ID which can be used to send messages without external link dependency.
+ */
+export async function uploadMediaToMeta(args: UploadMediaArgs): Promise<string> {
+  const { phoneNumberId, accessToken, file, mimeType, filename = 'upload.bin' } = args
+  const url = `${META_API_BASE}/${phoneNumberId}/media`
+
+  const formData = new FormData()
+  formData.append('messaging_product', 'whatsapp')
+  formData.append('type', mimeType)
+
+  if (file instanceof Blob) {
+    formData.append('file', file, filename)
+  } else {
+    const blob = new Blob([new Uint8Array(file)], { type: mimeType })
+    formData.append('file', blob, filename)
+  }
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: formData,
+  })
+
+  if (!response.ok) {
+    await throwMetaError(response, `Meta Media Upload error: ${response.status}`)
+  }
+
+  const data = await response.json()
+  return data.id as string
+}
+
+/**
+ * Send an image, video, document, or audio (voice note) via a public URL or Meta media ID.
  *
  * Used by the Flows engine's `send_media` node and the inbox composer's
- * agent-initiated media sends. Mirrors `sendTextMessage` — single fetch,
- * throws on non-2xx, returns Meta's message id.
- *
- * Audio is special-cased: Meta rejects `caption` and `filename` on audio
- * messages, so we send `{ link }` only. WhatsApp auto-renders an
- * OGG/Opus file as a playable voice note (waveform) rather than a file
- * attachment.
+ * agent-initiated media sends. Automatically pre-uploads media to Meta if the URL
+ * is on Supabase storage or private/custom hosts to prevent Meta 503 download errors.
  */
 export async function sendMediaMessage(
   args: SendMediaMessageArgs,
 ): Promise<MetaSendResult> {
-  const { phoneNumberId, accessToken, to, kind, link, caption, filename, contextMessageId } = args
-  if (!link) throw new Error('sendMediaMessage requires a link.')
+  const { phoneNumberId, accessToken, to, kind, link, mediaId, caption, filename, contextMessageId } = args
+  if (!link && !mediaId) throw new Error('sendMediaMessage requires a link or mediaId.')
   const url = `${META_API_BASE}/${phoneNumberId}/messages`
+
+  let resolvedMediaId = mediaId
+
+  // If only link was supplied, check if it's a Supabase storage URL or self-hosted host
+  // (like sslip.io or private IP) which Meta Cloud API edge servers cannot download (error 131053).
+  // In that case, download the bytes internally and upload to Meta's /media endpoint.
+  if (!resolvedMediaId && link) {
+    const isSelfHostedOrStorage =
+      link.includes('sslip.io') ||
+      link.includes('nip.io') ||
+      link.includes('storage/v1/object') ||
+      link.includes('localhost') ||
+      link.includes('127.0.0.1')
+
+    if (isSelfHostedOrStorage) {
+      try {
+        const cacheKey = `meta:media:${phoneNumberId}:${link}`
+        const cached = await cacheGet<string>(cacheKey)
+        if (cached) {
+          resolvedMediaId = cached
+        } else {
+          let blob: Blob | null = null
+          let mimeType = kind === 'image' ? 'image/jpeg' : kind === 'video' ? 'video/mp4' : 'application/octet-stream'
+
+          // Try downloading via Supabase storage if URL matches pattern
+          const storageMatch = link.match(/\/storage\/v1\/object\/public\/([^/]+)\/(.+)$/)
+          if (storageMatch) {
+            const bucket = storageMatch[1]
+            const storagePath = storageMatch[2].split('?')[0]
+            try {
+              const { supabaseAdmin } = await import('@/lib/ai/admin-client')
+              const { data: storageBlob, error: storageErr } = await supabaseAdmin()
+                .storage.from(bucket)
+                .download(storagePath)
+              if (!storageErr && storageBlob) {
+                blob = storageBlob
+                mimeType = storageBlob.type || mimeType
+              }
+            } catch (storageDownloadErr) {
+              console.warn('[sendMediaMessage] Supabase storage download error:', storageDownloadErr)
+            }
+          }
+
+          // Fallback to fetch
+          if (!blob) {
+            const res = await fetch(link)
+            if (res.ok) {
+              mimeType = res.headers.get('content-type') || mimeType
+              const arrayBuf = await res.arrayBuffer()
+              blob = new Blob([arrayBuf], { type: mimeType })
+            }
+          }
+
+          if (blob) {
+            const uploadedId = await uploadMediaToMeta({
+              phoneNumberId,
+              accessToken,
+              file: blob,
+              mimeType,
+              filename: filename || (kind === 'image' ? 'image.jpg' : 'media.bin'),
+            })
+            if (uploadedId) {
+              resolvedMediaId = uploadedId
+              await cacheSet(cacheKey, uploadedId, 86400 * 7) // 7 days TTL
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('[sendMediaMessage] Pre-upload media to Meta error, falling back to link:', err)
+      }
+    }
+  }
 
   // Audio accepts neither caption nor filename per Meta's spec — adding
   // either yields a 400. image/video/document accept a caption; only
   // document accepts a filename.
-  const media: Record<string, unknown> = { link }
+  const media: Record<string, unknown> = resolvedMediaId ? { id: resolvedMediaId } : { link }
   if (caption && kind !== 'audio') media.caption = caption
   if (kind === 'document' && filename) media.filename = filename
 
